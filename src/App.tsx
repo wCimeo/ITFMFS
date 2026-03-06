@@ -8,7 +8,7 @@ import { SettingsView } from './components/SettingsView';
 
 export default function App() {
   const [activeTab, setActiveTab] = React.useState('dashboard');
-  const [isDarkMode, setIsDarkMode] = React.useState(true);
+  const [isDarkMode, setIsDarkMode] = React.useState(false);
 
   // Apply dark mode class to html tag
   useEffect(() => {
