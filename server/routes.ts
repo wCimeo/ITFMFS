@@ -106,7 +106,7 @@ export async function setupRoutes(app: Application) {
     res.json(MOCK_DATA.advice);
   });
 
-  // 7) 可视化模块
+  // 7) 可视化模块 (集成真实的 Python AI 微服务)
   app.get('/api/visual/flowchart', async (req: Request, res: Response) => {
     const defaultData = [
       { time: '08:00', historical: 120, predicted: 125 },
@@ -126,27 +126,92 @@ export async function setupRoutes(app: Application) {
     if (!isDbConnected) return res.json(defaultData);
 
     try {
-      // 获取路口 A1 过去 12 个时间步（3小时）的数据
-      const [rows]: any = await pool.query(`
-        SELECT DATE_FORMAT(timestamp, '%H:%i') as time, flow as historical
-        FROM traffic_flow
-        WHERE node_id = 'A1'
-        ORDER BY timestamp DESC
+      // 1. 获取最近的 12 个时间戳
+      const [timeRows]: any = await pool.query(`
+        SELECT DISTINCT timestamp 
+        FROM traffic_flow 
+        ORDER BY timestamp DESC 
         LIMIT 12
       `);
       
-      // 倒序排列以符合时间轴顺序
-      const data = rows.reverse().map((r: any) => ({
-        time: r.time,
-        historical: Number(r.historical),
-        // 模拟预测数据：在历史数据基础上加减随机数，模拟 LST-GCN 预测
-        predicted: Number(r.historical) + Math.floor(Math.random() * 30 - 15)
-      }));
+      if (timeRows.length === 0) return res.json(defaultData);
       
-      res.json(data.length > 0 ? data : defaultData);
+      // 按时间升序排列 (过去 -> 现在)
+      const timestamps = timeRows.map((r: any) => r.timestamp).reverse();
+      
+      // 2. 获取这 12 个时间步内，所有 7 个路口的流量数据
+      const [flowRows]: any = await pool.query(`
+        SELECT node_id, timestamp, flow 
+        FROM traffic_flow 
+        WHERE timestamp >= ? AND timestamp <= ?
+        ORDER BY timestamp ASC, node_id ASC
+      `, [timestamps[0], timestamps[timestamps.length - 1]]);
+
+      // 3. 组装发给 Python 微服务的 12x7 矩阵
+      const nodeOrder = ['A1', 'B2', 'C3', 'D4', 'E5', 'F6', 'G7'];
+      const historyMatrix: number[][] = [];
+      const chartData: any[] = []; // 组装前端图表需要的数据 (以 A1 为例)
+
+      for (const ts of timestamps) {
+        const timeString = new Date(ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        
+        // 提取当前时间步下，7个路口的流量
+        const stepData = nodeOrder.map(nodeId => {
+          const record = flowRows.find((r: any) => 
+            r.node_id === nodeId && new Date(r.timestamp).getTime() === new Date(ts).getTime()
+          );
+          return record ? Number(record.flow) : 0;
+        });
+        
+        historyMatrix.push(stepData);
+        
+        // 记录 A1 的历史数据用于图表展示
+        chartData.push({
+          time: timeString,
+          historical: stepData[0], // A1 是第 0 个
+          predicted: null // 历史数据点没有预测值
+        });
+      }
+
+      // 4. 调用 Python AI 微服务进行预测
+      let predictedA1 = null;
+      try {
+        // 使用 Node.js 原生 fetch 发送 HTTP 请求给 Flask
+        const aiResponse = await fetch('http://127.0.0.1:5000/predict', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ history: historyMatrix })
+        });
+        
+        if (aiResponse.ok) {
+          const aiResult = await aiResponse.json();
+          if (aiResult.status === 'success') {
+            predictedA1 = aiResult.prediction.A1; // 拿到 AI 预测的 A1 路口流量
+          }
+        }
+      } catch (aiError) {
+        console.warn('⚠️ 无法连接到 Python AI 微服务，将使用模拟预测值。');
+        predictedA1 = chartData[chartData.length - 1].historical + Math.floor(Math.random() * 30 - 15);
+      }
+
+      // 5. 将预测结果追加到图表数据中 (未来 15 分钟)
+      const lastDate = new Date(timestamps[timestamps.length - 1]);
+      const nextDate = new Date(lastDate.getTime() + 15 * 60000); // 加 15 分钟
+      const nextTimeString = nextDate.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+
+      // 为了让前端折线图连贯，把最后一个历史点也赋上预测值（作为预测线的起点）
+      chartData[chartData.length - 1].predicted = chartData[chartData.length - 1].historical;
+
+      // 添加未来的预测点
+      chartData.push({
+        time: nextTimeString,
+        historical: null,
+        predicted: predictedA1
+      });
+
+      res.json(chartData);
     } catch (error) {
       console.error('Database Error in /api/visual/flowchart:', error);
-      // Fallback
       res.json(defaultData);
     }
   });
