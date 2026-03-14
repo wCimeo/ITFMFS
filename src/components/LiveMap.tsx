@@ -7,11 +7,11 @@ import L from 'leaflet';
 import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
 
-let DefaultIcon = L.icon({
-    iconUrl: icon,
-    shadowUrl: iconShadow
+const defaultIcon = L.icon({
+  iconUrl: icon,
+  shadowUrl: iconShadow
 });
-L.Marker.prototype.options.icon = DefaultIcon;
+L.Marker.prototype.options.icon = defaultIcon;
 
 interface TrafficNode {
   id: string;
@@ -29,22 +29,19 @@ export function LiveMap() {
   const center: [number, number] = [39.9042, 116.4074];
 
   useEffect(() => {
-    // Fetch mock map data from our Express backend
     fetch('/api/visual/map')
-      .then(res => res.json())
-      .then(data => {
-        // Enhance mock data with names for the UI
-        const enhancedNodes = data.nodes.map((n: any, i: number) => ({
+      .then((res) => res.json())
+      .then((data) => {
+        const enhancedNodes = data.nodes.map((n: any) => ({
           ...n,
-          name: `路口 ${n.id}`,
-          // Add some random variation to flow for demo purposes if it's static
-          flow: n.flow + Math.floor(Math.random() * 50) 
+          name: n.name || `路口 ${n.id}`,
+          flow: Number(n.flow)
         }));
         setNodes(enhancedNodes);
         setLoading(false);
       })
-      .catch(err => {
-        console.error("Failed to fetch map data:", err);
+      .catch((err) => {
+        console.error('Failed to fetch map data:', err);
         setLoading(false);
       });
   }, []);
@@ -75,7 +72,7 @@ export function LiveMap() {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-lg font-medium text-gray-900 dark:text-zinc-100">实时路网交通状态</h2>
-          <p className="text-sm text-gray-500 dark:text-zinc-400">正在监控 {nodes.length} 个活跃路口</p>
+          <p className="text-sm text-gray-500 dark:text-zinc-400">正在监控 {nodes.length} 个活动路口</p>
         </div>
         <div className="flex gap-4 text-sm">
           <div className="flex items-center gap-2">
@@ -94,9 +91,9 @@ export function LiveMap() {
       </div>
 
       <div className="h-[600px] rounded-xl overflow-hidden border border-gray-200 dark:border-zinc-800 relative z-0 transition-colors duration-300">
-        <MapContainer 
-          center={center} 
-          zoom={13} 
+        <MapContainer
+          center={center}
+          zoom={13}
           style={{ height: '100%', width: '100%', background: isDarkMode ? '#09090b' : '#f9fafb' }}
         >
           {isDarkMode ? (
@@ -110,7 +107,7 @@ export function LiveMap() {
               url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
             />
           )}
-          
+
           {nodes.map((node) => (
             <CircleMarker
               key={node.id}

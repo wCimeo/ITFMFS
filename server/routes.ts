@@ -1,5 +1,5 @@
-import { Application, Request, Response } from 'express';
-import { pool, testConnection } from './db';
+import type { Application, Request, Response } from 'express';
+import { pool, testConnection } from './db.ts';
 
 // Mock data for initial development
 const MOCK_DATA = {
@@ -11,11 +11,73 @@ const MOCK_DATA = {
   ],
   prediction: { timestamp: '2023-10-01T11:00:00Z', predicted_flow: 135, confidence: 0.85 },
   signal: { intersection_id: 'A1', phase: 'NS_GREEN', duration: 45 },
-  route: { path: ['A1', 'B2', 'C3'], estimated_time: 15 },
+  route: {
+    path: ['A1', 'B2', 'D4', 'F6'],
+    estimated_time: 22,
+    distance: 8.5,
+    savings: 5,
+    steps: [
+      { instruction: '向北驶入主干道', distance: '1.2 km', time: '3 分钟' },
+      { instruction: '右转进入第一大道', distance: '3.5 km', time: '8 分钟' },
+      { instruction: '直行通过路口 D4', distance: '2.0 km', time: '6 分钟' },
+      { instruction: '到达目的地 F6', distance: '1.8 km', time: '5 分钟' }
+    ]
+  },
   advice: { message: 'Traffic is light. Recommended route: Main St.' }
 };
 
 let isDbConnected = false;
+const NODE_IDS = ['A1', 'B2', 'C3', 'D4', 'E5', 'F6', 'G7'];
+
+function normalizeNodeId(value: unknown) {
+  if (typeof value !== 'string') return null;
+  const match = value.toUpperCase().match(/A1|B2|C3|D4|E5|F6|G7/);
+  return match?.[0] ?? null;
+}
+
+function buildMockRoute(startInput: unknown, endInput: unknown, objectiveInput: unknown) {
+  const start = normalizeNodeId(startInput) ?? 'A1';
+  const end = normalizeNodeId(endInput) ?? 'F6';
+  const objective = typeof objectiveInput === 'string' ? objectiveInput : 'fastest';
+
+  if (start === end) {
+    return {
+      start,
+      end,
+      objective,
+      path: [start],
+      estimated_time: 0,
+      distance: 0,
+      savings: 0,
+      steps: [{ instruction: `已在目的地 ${end}`, distance: '0 km', time: '0 分钟' }]
+    };
+  }
+
+  const startIndex = NODE_IDS.indexOf(start);
+  const endIndex = NODE_IDS.indexOf(end);
+  const path =
+    startIndex <= endIndex
+      ? NODE_IDS.slice(startIndex, endIndex + 1)
+      : [...NODE_IDS.slice(endIndex, startIndex + 1)].reverse();
+
+  const distance = Number(((path.length - 1) * 1.8 + 1.3).toFixed(1));
+  const estimatedTimeBase = Math.round(distance * 2.6);
+  const estimated_time =
+    objective === 'shortest_distance'
+      ? Math.max(estimatedTimeBase + 2, 5)
+      : Math.max(estimatedTimeBase, 5);
+  const savings = Math.max(1, Math.round(path.length / 2));
+  const steps = path.map((node, index) => ({
+    instruction:
+      index === path.length - 1
+        ? `到达目的地 ${node}`
+        : `沿推荐道路前往路口 ${path[index + 1]}`,
+    distance: index === path.length - 1 ? '0 km' : '1.8 km',
+    time: index === path.length - 1 ? '0 分钟' : `${Math.max(2, Math.round(estimated_time / path.length))} 分钟`
+  }));
+
+  return { start, end, objective, path, estimated_time, distance, savings, steps };
+}
 
 export async function setupRoutes(app: Application) {
   // 在启动路由前测试数据库连接
@@ -99,7 +161,8 @@ export async function setupRoutes(app: Application) {
 
   // 6) 用户服务模块
   app.get('/api/user/route', (req: Request, res: Response) => {
-    res.json(MOCK_DATA.route);
+    const { start, end, objective } = req.query;
+    res.json(buildMockRoute(start, end, objective));
   });
 
   app.get('/api/user/advice', (req: Request, res: Response) => {
@@ -219,13 +282,13 @@ export async function setupRoutes(app: Application) {
   app.get('/api/visual/map', async (req: Request, res: Response) => {
     const defaultMapData = {
       nodes: [
-        { id: 'A1', lat: 39.9042, lng: 116.4074, flow: 150 },
-        { id: 'B2', lat: 39.9150, lng: 116.4000, flow: 80 },
-        { id: 'C3', lat: 39.8950, lng: 116.4200, flow: 210 },
-        { id: 'D4', lat: 39.9200, lng: 116.4300, flow: 110 },
-        { id: 'E5', lat: 39.8900, lng: 116.3900, flow: 60 },
-        { id: 'F6', lat: 39.9050, lng: 116.4500, flow: 180 },
-        { id: 'G7', lat: 39.9300, lng: 116.3800, flow: 130 }
+        { id: 'A1', name: '路口 A1', lat: 39.9042, lng: 116.4074, flow: 150 },
+        { id: 'B2', name: '路口 B2', lat: 39.9150, lng: 116.4000, flow: 80 },
+        { id: 'C3', name: '路口 C3', lat: 39.8950, lng: 116.4200, flow: 210 },
+        { id: 'D4', name: '路口 D4', lat: 39.9200, lng: 116.4300, flow: 110 },
+        { id: 'E5', name: '路口 E5', lat: 39.8900, lng: 116.3900, flow: 60 },
+        { id: 'F6', name: '路口 F6', lat: 39.9050, lng: 116.4500, flow: 180 },
+        { id: 'G7', name: '路口 G7', lat: 39.9300, lng: 116.3800, flow: 130 }
       ]
     };
 
