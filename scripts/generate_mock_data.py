@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',
-    '': '123456', # 替换为你的 MySQL 密码
+    'password': '123456', # 替换为你的 MySQL 密码
     'database': 'traffic_system',
     'charset': 'utf8mb4'
 }

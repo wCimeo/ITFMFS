@@ -3,8 +3,10 @@ from flask import Flask, request, jsonify
 import torch
 import torch.nn as nn
 import numpy as np
+from pathlib import Path
 
 app = Flask(__name__)
+BASE_DIR = Path(__file__).resolve().parent
 
 # ==========================================
 # 1. 重新定义模型结构 (必须和训练时完全一致)
@@ -44,7 +46,7 @@ class LSTGCN(nn.Module):
 num_nodes = 7
 # 注意：在本地部署推理时，通常使用 CPU 即可 (map_location='cpu')
 model = LSTGCN(num_nodes=7, in_dim=1, hidden_dim=64, out_dim=1)
-model.load_state_dict(torch.load('lst_gcn_weights.pth', map_location=torch.device('cpu')))
+model.load_state_dict(torch.load(BASE_DIR / 'lst_gcn_weights.pth', map_location=torch.device('cpu')))
 model.eval()
 
 # 重新构建邻接矩阵 (与训练时相同)
