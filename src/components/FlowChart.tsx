@@ -1,54 +1,114 @@
 import React from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import {
+  Brush,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis
+} from 'recharts';
 
-interface FlowChartProps {
-  data: { time: string; historical: number; predicted: number }[];
+interface FlowChartPoint {
+  hour: number;
+  time: string;
+  historical: number | null;
+  predicted: number | null;
+  periodLabel: string;
 }
 
-export function FlowChart({ data }: FlowChartProps) {
+interface PeakWindow {
+  key: string;
+  label: string;
+  startHour: number;
+  endHour: number;
+}
+
+interface FlowChartProps {
+  data: FlowChartPoint[];
+  peaks: PeakWindow[];
+  range: { startIndex: number; endIndex: number };
+  onRangeChange: (range: { startIndex: number; endIndex: number }) => void;
+}
+
+export function FlowChart({ data, peaks, range, onRangeChange }: FlowChartProps) {
   return (
-    <div className="h-64 w-full">
+    <div className="h-[340px] w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 5, right: 20, left: -20, bottom: 5 }}>
+        <LineChart data={data} margin={{ top: 10, right: 20, left: -10, bottom: 16 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-gray-200 dark:text-zinc-800" vertical={false} />
-          <XAxis 
-            dataKey="time" 
-            stroke="currentColor" 
-            className="text-gray-500 dark:text-zinc-500"
-            fontSize={12} 
-            tickLine={false}
-            axisLine={false}
-          />
-          <YAxis 
-            stroke="currentColor" 
+          <XAxis
+            dataKey="time"
+            stroke="currentColor"
             className="text-gray-500 dark:text-zinc-500"
             fontSize={12}
             tickLine={false}
             axisLine={false}
           />
-          <Tooltip 
-            contentStyle={{ backgroundColor: 'var(--tw-bg-opacity, #18181b)', borderColor: 'var(--tw-border-opacity, #27272a)', borderRadius: '8px' }}
-            itemStyle={{ color: 'var(--tw-text-opacity, #e4e4e7)' }}
+          <YAxis
+            stroke="currentColor"
+            className="text-gray-500 dark:text-zinc-500"
+            fontSize={12}
+            tickLine={false}
+            axisLine={false}
+          />
+          <Tooltip
+            formatter={(value: number | null, name: string) => [`${value ?? '--'} 辆/小时`, name]}
+            labelFormatter={(label, payload) => {
+              const point = payload?.[0]?.payload as FlowChartPoint | undefined;
+              return point ? `${label} · ${point.periodLabel}` : label;
+            }}
+            contentStyle={{
+              backgroundColor: '#18181b',
+              borderColor: '#27272a',
+              borderRadius: '10px',
+              color: '#f4f4f5'
+            }}
           />
           <Legend iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
-          <Line 
-            type="monotone" 
+
+          <Line
+            type="monotone"
             name="历史真实流量"
-            dataKey="historical" 
-            stroke="#3b82f6" 
-            strokeWidth={2}
+            dataKey="historical"
+            stroke="#3b82f6"
+            strokeWidth={2.5}
             dot={false}
             activeDot={{ r: 6 }}
+            connectNulls={false}
           />
-          <Line 
-            type="monotone" 
-            name="LST-GCN 预测流量"
-            dataKey="predicted" 
-            stroke="#10b981" 
-            strokeWidth={2}
-            strokeDasharray="5 5"
+          <Line
+            type="monotone"
+            name="预测趋势"
+            dataKey="predicted"
+            stroke="#10b981"
+            strokeWidth={2.5}
+            strokeDasharray="6 5"
             dot={false}
             activeDot={{ r: 6 }}
+            connectNulls
+          />
+
+          <Brush
+            dataKey="time"
+            height={24}
+            stroke="#10b981"
+            travellerWidth={10}
+            startIndex={range.startIndex}
+            endIndex={range.endIndex}
+            onChange={(nextRange) => {
+              if (
+                typeof nextRange?.startIndex === 'number' &&
+                typeof nextRange?.endIndex === 'number'
+              ) {
+                onRangeChange({
+                  startIndex: nextRange.startIndex,
+                  endIndex: nextRange.endIndex
+                });
+              }
+            }}
           />
         </LineChart>
       </ResponsiveContainer>

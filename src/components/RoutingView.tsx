@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Navigation, MapPin, Clock, ArrowRight, Zap } from 'lucide-react';
+import { ArrowRight, Clock, MapPin, Navigation, Zap } from 'lucide-react';
 
 interface RouteStep {
   instruction: string;
@@ -49,7 +49,7 @@ export function RoutingView() {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-lg font-medium text-gray-900 dark:text-zinc-100">智能路线推荐</h2>
-          <p className="text-sm text-gray-500 dark:text-zinc-400">基于实时路况与 LST-GCN 预测流量的 AI 动态路径规划</p>
+          <p className="text-sm text-gray-500 dark:text-zinc-400">基于实时路况与预测结果生成更适合工程展示的推荐路径。</p>
         </div>
       </div>
 
@@ -125,9 +125,7 @@ export function RoutingView() {
                   </>
                 )}
               </button>
-              {error && (
-                <p className="mt-3 text-sm text-red-500 dark:text-red-400">{error}</p>
-              )}
+              {error && <p className="mt-3 text-sm text-red-500 dark:text-red-400">{error}</p>}
             </div>
           </div>
         </div>
@@ -221,7 +219,7 @@ export function RoutingView() {
             <div className="h-full min-h-[400px] rounded-xl border border-gray-200 dark:border-zinc-800 border-dashed flex flex-col items-center justify-center text-gray-400 dark:text-zinc-500 bg-gray-50 dark:bg-zinc-900/20 transition-colors duration-300">
               <Navigation className="w-12 h-12 mb-4 opacity-20" />
               <p>输入起点和终点以计算最优路线</p>
-              <p className="text-sm mt-2 opacity-60">由 LST-GCN 预测流量分析提供支持</p>
+              <p className="text-sm mt-2 opacity-60">当前后端采用工程演示型规则策略生成推荐结果</p>
             </div>
           )}
         </div>

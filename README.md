@@ -42,9 +42,13 @@ ITFMFS/
 
 建议使用 Conda 虚拟环境，当前项目已确认可用环境如下：
 
-- Python 3.12.0
+- Python 3.12.12
 - Flask 3.1.3
-- torch 2.10.0
+- numpy 2.0.1
+- pytorch 2.5.1
+- pymysql 1.1.2
+- pandas 3.0.1
+- matplotlib 3.10.8
 
 ### 3. MySQL
 
@@ -95,9 +99,9 @@ npm.cmd install
 如果已有可用 Conda 环境，直接激活即可。若需新建环境，可执行：
 
 ```powershell
-conda create -n traffic-thesis python=3.12 -y
-conda activate traffic-thesis
-pip install flask numpy torch pymysql pandas matplotlib
+conda create -n thesis python=3.12.12 -y
+conda activate thesis
+pip install flask==3.1.3 numpy==2.0.1 torch==2.5.1 pymysql==1.1.2 pandas==3.0.1 matplotlib==3.10.8
 ```
 
 ### 第五步：启动 AI 推理服务
@@ -105,7 +109,7 @@ pip install flask numpy torch pymysql pandas matplotlib
 打开一个终端：
 
 ```powershell
-conda activate traffic-thesis
+conda activate thesis
 cd /d e:\Obsidian\graduationThesis\ITFMFS\ai_service
 python app.py
 ```
@@ -136,7 +140,7 @@ http://localhost:3000
 如果数据库表存在但 `traffic_flow` 数据不足，可使用脚本生成模拟交通流量数据：
 
 ```powershell
-conda activate traffic-thesis
+conda activate thesis
 cd /d e:\Obsidian\graduationThesis\ITFMFS
 python scripts\generate_mock_data.py
 ```
@@ -225,7 +229,7 @@ npm.cmd run start
 请确认当前已激活正确的 Conda 环境，并安装：
 
 ```powershell
-pip install flask numpy torch pymysql pandas matplotlib
+pip install flask==3.1.3 numpy==2.0.1 torch==2.5.1 pymysql==1.1.2 pandas==3.0.1 matplotlib==3.10.8
 ```
 
 ### 5. 端口被占用

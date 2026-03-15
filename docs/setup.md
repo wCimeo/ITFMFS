@@ -1,4 +1,4 @@
-# 项目启动说明
+﻿# 项目启动说明
 
 本文档用于说明如何从零启动本项目，包括数据库准备、环境配置、服务启动和常见问题排查。
 
@@ -11,10 +11,15 @@
 ### Python
 
 - 建议使用 Conda 虚拟环境
-- 已验证环境：
-  - Python 3.12.0
+- 当前已验证环境：
+  - 环境名：`thesis`
+  - Python 3.12.12
   - Flask 3.1.3
-  - torch 2.10.0
+  - numpy 2.0.1
+  - pytorch 2.5.1
+  - pymysql 1.1.2
+  - pandas 3.0.1
+  - matplotlib 3.10.8
 
 ### MySQL
 
@@ -64,12 +69,19 @@ npm.cmd install
 
 ### 2. Python 依赖
 
-如果已有可用 Conda 环境，可直接激活；否则可新建：
+如果你已经有 `thesis` 环境，直接激活即可：
 
 ```powershell
-conda create -n traffic-thesis python=3.12 -y
-conda activate traffic-thesis
-pip install flask numpy torch pymysql pandas matplotlib
+conda activate thesis
+pip install flask==3.1.3 numpy==2.0.1 torch==2.5.1 pymysql==1.1.2 pandas==3.0.1 matplotlib==3.10.8
+```
+
+如果需要新建环境：
+
+```powershell
+conda create -n thesis python=3.12.12 -y
+conda activate thesis
+pip install flask==3.1.3 numpy==2.0.1 torch==2.5.1 pymysql==1.1.2 pandas==3.0.1 matplotlib==3.10.8
 ```
 
 ## 五、启动项目
@@ -79,7 +91,7 @@ pip install flask numpy torch pymysql pandas matplotlib
 ### 终端 1：启动 AI 推理服务
 
 ```powershell
-conda activate traffic-thesis
+conda activate thesis
 cd /d e:\Obsidian\graduationThesis\ITFMFS\ai_service
 python app.py
 ```
@@ -108,7 +120,7 @@ http://localhost:3000
 如果数据库表已存在，但 `traffic_flow` 数据不足，可运行数据生成脚本：
 
 ```powershell
-conda activate traffic-thesis
+conda activate thesis
 cd /d e:\Obsidian\graduationThesis\ITFMFS
 python scripts\generate_mock_data.py
 ```
@@ -147,8 +159,8 @@ npm.cmd run start
 
 1. 访问 `http://localhost:3000`
 2. 首页是否能正常打开
-3. 地图页面是否显示路口节点
-4. 折线图是否返回历史流量和预测结果
+3. 地图页面是否显示路口节点或 PeMS 站点
+4. 折线图是否返回 1-24 点历史流量和预测结果
 5. 控制台是否出现 MySQL 连接成功日志
 6. Flask 终端是否收到 `/predict` 请求
 
@@ -178,7 +190,7 @@ npm.cmd run start
 排查建议：
 
 - 检查 `ai_service` 终端输出
-- 确认 [ai_service/lst_gcn_weights.pth](/e:/Obsidian\graduationThesis\ITFMFS\ai_service\lst_gcn_weights.pth) 存在
+- 确认 `ai_service/lst_gcn_weights.pth` 存在
 
 ### 3. MySQL 报密码错误
 
@@ -193,7 +205,7 @@ DB_PASSWORD=你的密码
 请确认已经激活正确环境，并执行：
 
 ```powershell
-pip install flask numpy torch pymysql pandas matplotlib
+pip install flask==3.1.3 numpy==2.0.1 torch==2.5.1 pymysql==1.1.2 pandas==3.0.1 matplotlib==3.10.8
 ```
 
 ### 5. 端口被占用
@@ -208,6 +220,6 @@ pip install flask numpy torch pymysql pandas matplotlib
 ## 十、补充说明
 
 - 当前项目中真实联通程度最高的模块是实时指标、地图和预测图。
-- 路径推荐功能已完成前后端联调，但后端目前仍是规则化 mock 逻辑。
-- 信号灯优化、异常监控等模块仍可在后续继续完善。
+- 路径推荐功能已完成前后端联调，但后端目前仍是规则化演示逻辑。
+- 信号灯优化、异常监控等模块已补齐基础工程逻辑，后续仍可继续扩展。
 - 论文写作建议统一使用当前真实实现架构：`React + Express + MySQL + Flask/PyTorch`。
