@@ -1,5 +1,10 @@
-import mysql from 'mysql2/promise';
+﻿import mysql from 'mysql2/promise';
 import 'dotenv/config';
+import { hashPassword } from './auth.ts';
+import { SYSTEM_INTERSECTIONS } from './intersections.ts';
+
+const DEFAULT_ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin_traffic';
+const DEFAULT_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Traffic@123456';
 
 export const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
@@ -13,14 +18,50 @@ export const pool = mysql.createPool({
 
 const bootstrapStatements = [
   `
+    CREATE TABLE IF NOT EXISTS nodes (
+      id VARCHAR(20) NOT NULL PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      lat DECIMAL(10, 6) NOT NULL,
+      lng DECIMAL(10, 6) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS traffic_flow (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      node_id VARCHAR(20) NOT NULL,
+      timestamp DATETIME NOT NULL,
+      flow INT NOT NULL,
+      speed DECIMAL(6, 2) DEFAULT NULL,
+      occupancy DECIMAL(6, 4) DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_traffic_node FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
+      INDEX idx_node_time (node_id, timestamp),
+      INDEX idx_time (timestamp)
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS predictions (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      node_id VARCHAR(20) NOT NULL,
+      target_time DATETIME NOT NULL,
+      predicted_flow INT NOT NULL,
+      confidence DECIMAL(4, 3) DEFAULT NULL,
+      model_version VARCHAR(40) DEFAULT 'LST-GCN-v1.2',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_prediction_node FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
+      INDEX idx_node_target (node_id, target_time)
+    )
+  `,
+  `
     CREATE TABLE IF NOT EXISTS users (
       id BIGINT AUTO_INCREMENT PRIMARY KEY,
       username VARCHAR(50) NOT NULL UNIQUE,
       full_name VARCHAR(100) NOT NULL,
       email VARCHAR(100) DEFAULT NULL,
       phone VARCHAR(30) DEFAULT NULL,
-      role VARCHAR(30) NOT NULL DEFAULT 'SUPER_ADMIN',
-      status VARCHAR(20) NOT NULL DEFAULT 'ONLINE',
+      password_hash TEXT DEFAULT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'OFFLINE',
       preferred_theme VARCHAR(20) NOT NULL DEFAULT 'light',
       prediction_horizon_minutes INT NOT NULL DEFAULT 60,
       sliding_window_steps INT NOT NULL DEFAULT 12,
@@ -31,10 +72,13 @@ const bootstrapStatements = [
       can_manage_data TINYINT(1) NOT NULL DEFAULT 1,
       can_manage_models TINYINT(1) NOT NULL DEFAULT 1,
       can_manage_signals TINYINT(1) NOT NULL DEFAULT 1,
+      session_token VARCHAR(128) DEFAULT NULL,
+      session_expires_at DATETIME DEFAULT NULL,
       last_login_at DATETIME DEFAULT NULL,
       last_active_at DATETIME DEFAULT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uk_users_session_token (session_token)
     )
   `,
   `
@@ -75,14 +119,131 @@ const bootstrapStatements = [
       speed DECIMAL(10, 2) DEFAULT NULL,
       occupancy DECIMAL(6, 4) DEFAULT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      CONSTRAINT fk_pems_station
-        FOREIGN KEY (station_id) REFERENCES pems_stations(id)
-        ON DELETE CASCADE,
+      CONSTRAINT fk_pems_station FOREIGN KEY (station_id) REFERENCES pems_stations(id) ON DELETE CASCADE,
       INDEX idx_pems_station_time (station_id, timestamp),
       INDEX idx_pems_timestamp (timestamp)
     )
   `
 ];
+
+async function hasColumn(connection: mysql.PoolConnection, tableName: string, columnName: string) {
+  const [rows] = await connection.query<any[]>(
+    `
+      SELECT COUNT(*) AS total
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
+    `,
+    [tableName, columnName]
+  );
+
+  return Number(rows[0]?.total ?? 0) > 0;
+}
+
+async function ensureColumn(connection: mysql.PoolConnection, tableName: string, columnName: string, definition: string) {
+  if (!(await hasColumn(connection, tableName, columnName))) {
+    await connection.query(`ALTER TABLE ${tableName} ADD COLUMN ${definition}`);
+  }
+}
+
+async function dropColumnIfExists(connection: mysql.PoolConnection, tableName: string, columnName: string) {
+  if (await hasColumn(connection, tableName, columnName)) {
+    await connection.query(`ALTER TABLE ${tableName} DROP COLUMN ${columnName}`);
+  }
+}
+
+async function ensureUsersTableShape(connection: mysql.PoolConnection) {
+  await ensureColumn(connection, 'users', 'password_hash', 'password_hash TEXT DEFAULT NULL AFTER phone');
+  await ensureColumn(connection, 'users', 'status', `status VARCHAR(20) NOT NULL DEFAULT 'OFFLINE' AFTER password_hash`);
+  await ensureColumn(connection, 'users', 'preferred_theme', `preferred_theme VARCHAR(20) NOT NULL DEFAULT 'light' AFTER status`);
+  await ensureColumn(connection, 'users', 'prediction_horizon_minutes', 'prediction_horizon_minutes INT NOT NULL DEFAULT 60 AFTER preferred_theme');
+  await ensureColumn(connection, 'users', 'sliding_window_steps', 'sliding_window_steps INT NOT NULL DEFAULT 12 AFTER prediction_horizon_minutes');
+  await ensureColumn(connection, 'users', 'retrain_cycle_days', 'retrain_cycle_days INT NOT NULL DEFAULT 7 AFTER sliding_window_steps');
+  await ensureColumn(connection, 'users', 'congestion_threshold', 'congestion_threshold INT NOT NULL DEFAULT 130 AFTER retrain_cycle_days');
+  await ensureColumn(connection, 'users', 'auto_signal_control', 'auto_signal_control TINYINT(1) NOT NULL DEFAULT 1 AFTER congestion_threshold');
+  await ensureColumn(connection, 'users', 'can_manage_users', 'can_manage_users TINYINT(1) NOT NULL DEFAULT 1 AFTER auto_signal_control');
+  await ensureColumn(connection, 'users', 'can_manage_data', 'can_manage_data TINYINT(1) NOT NULL DEFAULT 1 AFTER can_manage_users');
+  await ensureColumn(connection, 'users', 'can_manage_models', 'can_manage_models TINYINT(1) NOT NULL DEFAULT 1 AFTER can_manage_data');
+  await ensureColumn(connection, 'users', 'can_manage_signals', 'can_manage_signals TINYINT(1) NOT NULL DEFAULT 1 AFTER can_manage_models');
+  await ensureColumn(connection, 'users', 'session_token', 'session_token VARCHAR(128) DEFAULT NULL AFTER can_manage_signals');
+  await ensureColumn(connection, 'users', 'session_expires_at', 'session_expires_at DATETIME DEFAULT NULL AFTER session_token');
+  await ensureColumn(connection, 'users', 'last_login_at', 'last_login_at DATETIME DEFAULT NULL AFTER session_expires_at');
+  await ensureColumn(connection, 'users', 'last_active_at', 'last_active_at DATETIME DEFAULT NULL AFTER last_login_at');
+  await dropColumnIfExists(connection, 'users', 'role');
+}
+
+async function seedSystemIntersections(connection: mysql.PoolConnection) {
+  const values = SYSTEM_INTERSECTIONS.map((item) => [item.id, item.name, item.lat, item.lng]);
+  await connection.query(
+    `
+      INSERT INTO nodes (id, name, lat, lng)
+      VALUES ?
+      ON DUPLICATE KEY UPDATE
+        name = VALUES(name),
+        lat = VALUES(lat),
+        lng = VALUES(lng)
+    `,
+    [values]
+  );
+}
+
+async function seedDefaultAdmin(connection: mysql.PoolConnection) {
+  const [rows] = await connection.query<any[]>('SELECT id, password_hash FROM users ORDER BY id ASC LIMIT 1');
+  const passwordHash = hashPassword(DEFAULT_ADMIN_PASSWORD);
+
+  if (!rows[0]) {
+    await connection.query(
+      `
+        INSERT INTO users (
+          username,
+          full_name,
+          email,
+          phone,
+          password_hash,
+          status,
+          preferred_theme,
+          prediction_horizon_minutes,
+          sliding_window_steps,
+          retrain_cycle_days,
+          congestion_threshold,
+          auto_signal_control,
+          can_manage_users,
+          can_manage_data,
+          can_manage_models,
+          can_manage_signals
+        ) VALUES (?, ?, ?, ?, ?, 'OFFLINE', 'light', 60, 12, 7, 130, 1, 1, 1, 1, 1)
+      `,
+      [
+        DEFAULT_ADMIN_USERNAME,
+        '交通系统超级管理员',
+        'admin@traffic-system.local',
+        '18200574338',
+        passwordHash
+      ]
+    );
+    return;
+  }
+
+  if (!rows[0].password_hash) {
+    await connection.query('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, rows[0].id]);
+  }
+}
+
+async function seedIncidents(connection: mysql.PoolConnection) {
+  const [rows] = await connection.query<any[]>('SELECT COUNT(*) AS total FROM incidents');
+  if (Number(rows[0]?.total ?? 0) > 0) {
+    return;
+  }
+
+  await connection.query(
+    `
+      INSERT INTO incidents (id, type, severity, location, description, related_node_id, status, created_at)
+      VALUES
+        ('INC-001', '交通事故', 'HIGH', '成都天府大道-锦城大道路口', '晚高峰期间发生轻微追尾，占用北向一条车道，已安排现场处置。', 'A1', 'ACTIVE', DATE_SUB(NOW(), INTERVAL 20 MINUTE)),
+        ('INC-002', '道路拥堵', 'MEDIUM', '成都益州大道-锦城大道路口', '车流量持续接近告警阈值，建议关注信号配时是否需要接管。', 'B2', 'ACTIVE', DATE_SUB(NOW(), INTERVAL 50 MINUTE)),
+        ('INC-003', '道路施工', 'LOW', '成都天府三街-天府大道路口', '道路维护施工已接近结束，当前保持固定配时，待现场撤场后恢复。', 'G7', 'ACTIVE', DATE_SUB(NOW(), INTERVAL 2 HOUR))
+    `
+  );
+}
 
 export async function testConnection() {
   try {
@@ -91,16 +252,13 @@ export async function testConnection() {
     connection.release();
     return true;
   } catch (error: any) {
-    console.warn('⚠️ 无法连接到 MySQL 数据库。');
-    console.warn('   系统将自动降级使用 Mock 数据。');
+    console.warn('⚠️ 无法连接到 MySQL 数据库，系统将降级为本地示例模式。');
     console.warn(`   错误详情: ${error.message}`);
-
     if (error.code === 'ER_ACCESS_DENIED_ERROR') {
-      console.warn('   💡 提示: 数据库密码错误，请检查根目录 .env 中的 DB_PASSWORD。');
+      console.warn('   提示: 请检查 .env 中的 DB_PASSWORD 是否正确。');
     } else if (error.code === 'ECONNREFUSED') {
-      console.warn('   💡 提示: MySQL 服务未启动，或端口不是 3306。');
+      console.warn('   提示: 请确认 MySQL 服务已经启动，并监听在正确端口。');
     }
-
     return false;
   }
 }
@@ -112,55 +270,12 @@ export async function bootstrapDatabase() {
       await connection.query(statement);
     }
 
-    const [userRows] = await connection.query<any[]>('SELECT COUNT(*) AS total FROM users');
-    if ((userRows[0]?.total ?? 0) === 0) {
-      await connection.query(
-        `
-          INSERT INTO users (
-            username, full_name, email, phone, role, status, preferred_theme,
-            prediction_horizon_minutes, sliding_window_steps, retrain_cycle_days,
-            congestion_threshold, auto_signal_control, can_manage_users,
-            can_manage_data, can_manage_models, can_manage_signals,
-            last_login_at, last_active_at
-          ) VALUES (
-            'admin_traffic',
-            '交通系统超级管理员',
-            'admin@traffic-system.local',
-            '18200574338',
-            'SUPER_ADMIN',
-            'ONLINE',
-            'light',
-            60,
-            12,
-            7,
-            130,
-            1,
-            1,
-            1,
-            1,
-            1,
-            NOW(),
-            NOW()
-          )
-        `
-      );
-    }
+    await ensureUsersTableShape(connection);
+    await seedSystemIntersections(connection);
+    await seedDefaultAdmin(connection);
+    await seedIncidents(connection);
 
-    const [incidentRows] = await connection.query<any[]>('SELECT COUNT(*) AS total FROM incidents');
-    if ((incidentRows[0]?.total ?? 0) === 0) {
-      await connection.query(
-        `
-          INSERT INTO incidents (id, type, severity, location, description, related_node_id, status, created_at)
-          VALUES
-            ('INC-001', '交通事故', 'HIGH', '路口 A1（主干道 & 第一大道）', '多车追尾事故，占用两条北向车道，现场已安排处置。', 'A1', 'ACTIVE', DATE_SUB(NOW(), INTERVAL 15 MINUTE)),
-            ('INC-002', '道路拥堵', 'MEDIUM', '路口 B2（次干道）', '晚高峰流量增幅明显，当前拥堵程度高于阈值。', 'B2', 'ACTIVE', DATE_SUB(NOW(), INTERVAL 45 MINUTE)),
-            ('INC-003', '道路施工', 'LOW', '路口 C3', '信号控制设备例行维护，当前处于固定配时模式。', 'C3', 'ACTIVE', DATE_SUB(NOW(), INTERVAL 2 HOUR)),
-            ('INC-004', '恶劣天气', 'MEDIUM', '城区主干道路网', '降雨导致平均车速下降，当前事件已解除。', NULL, 'RESOLVED', DATE_SUB(NOW(), INTERVAL 3 HOUR))
-        `
-      );
-    }
-
-    console.log('✅ 已完成数据库补充建表与默认数据初始化');
+    console.log('✅ 已完成数据库建表、用户结构修正与默认数据初始化');
   } finally {
     connection.release();
   }

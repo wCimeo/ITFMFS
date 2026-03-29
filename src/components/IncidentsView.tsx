@@ -1,5 +1,7 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock, MapPin, PlusCircle } from 'lucide-react';
+import { SYSTEM_INTERSECTIONS } from '../constants/intersections';
+import { apiFetch } from '../lib/api';
 
 interface Incident {
   id: string;
@@ -12,26 +14,41 @@ interface Incident {
   status: 'ACTIVE' | 'RESOLVED';
 }
 
+const INCIDENT_TYPES = ['道路拥堵', '交通事故', '道路施工', '恶劣天气', '设备异常'];
+
 const emptyForm = {
   type: '道路拥堵',
-  severity: 'MEDIUM',
-  location: '路口 A1',
+  severity: 'MEDIUM' as 'HIGH' | 'MEDIUM' | 'LOW',
+  relatedNodeId: 'A1',
   description: ''
 };
 
-export function IncidentsView() {
+export function IncidentsView({
+  onNotify
+}: {
+  onNotify: (message: string, type?: 'success' | 'error' | 'info') => void;
+}) {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
-  const [message, setMessage] = useState('');
+
+  const selectedNodeName = useMemo(
+    () => SYSTEM_INTERSECTIONS.find((item) => item.id === form.relatedNodeId)?.name ?? SYSTEM_INTERSECTIONS[0].name,
+    [form.relatedNodeId]
+  );
 
   const loadIncidents = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/incidents');
+      const response = await apiFetch('/api/incidents');
+      if (!response.ok) {
+        throw new Error('事件列表加载失败。');
+      }
       const data = await response.json();
       setIncidents(data);
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : '事件列表加载失败。', 'error');
     } finally {
       setLoading(false);
     }
@@ -42,43 +59,39 @@ export function IncidentsView() {
   }, []);
 
   const handleCreateIncident = async () => {
-    setMessage('');
     try {
-      const response = await fetch('/api/incidents', {
+      const response = await apiFetch('/api/incidents', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form)
       });
       const result = await response.json();
       if (!response.ok || result.status !== 'success') {
-        throw new Error(result.message || '事件上报失败');
+        throw new Error(result.message || '事件上报失败。');
       }
       setForm(emptyForm);
       setShowForm(false);
-      setMessage(result.message);
+      onNotify(result.message, 'success');
       await loadIncidents();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '事件上报失败');
+      onNotify(error instanceof Error ? error.message : '事件上报失败。', 'error');
     }
   };
 
   const handleUpdateStatus = async (incident: Incident) => {
-    setMessage('');
     const nextStatus = incident.status === 'ACTIVE' ? 'RESOLVED' : 'ACTIVE';
     try {
-      const response = await fetch(`/api/incidents/${incident.id}`, {
+      const response = await apiFetch(`/api/incidents/${incident.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: nextStatus })
       });
       const result = await response.json();
       if (!response.ok || result.status !== 'success') {
-        throw new Error(result.message || '状态更新失败');
+        throw new Error(result.message || '事件状态更新失败。');
       }
-      setMessage(result.message);
+      onNotify(result.message, 'success');
       await loadIncidents();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '状态更新失败');
+      onNotify(error instanceof Error ? error.message : '事件状态更新失败。', 'error');
     }
   };
 
@@ -87,25 +100,7 @@ export function IncidentsView() {
       localStorage.setItem('mapFocusNodeId', incident.relatedNodeId);
     }
     window.location.hash = '#map';
-  };
-
-  const getSeverityColor = (severity: string) => {
-    switch (severity) {
-      case 'HIGH':
-        return 'text-red-500 dark:text-red-400 bg-red-50 dark:bg-red-400/10 border-red-200 dark:border-red-400/20';
-      case 'MEDIUM':
-        return 'text-amber-500 dark:text-amber-400 bg-amber-50 dark:bg-amber-400/10 border-amber-200 dark:border-amber-400/20';
-      case 'LOW':
-        return 'text-blue-500 dark:text-blue-400 bg-blue-50 dark:bg-blue-400/10 border-blue-200 dark:border-blue-400/20';
-      default:
-        return 'text-gray-500 dark:text-zinc-400 bg-gray-50 dark:bg-zinc-400/10 border-gray-200 dark:border-zinc-400/20';
-    }
-  };
-
-  const getTypeIcon = (type: string) => {
-    if (type.includes('事故')) return <AlertTriangle className="w-5 h-5" />;
-    if (type.includes('拥堵')) return <Clock className="w-5 h-5" />;
-    return <MapPin className="w-5 h-5" />;
+    onNotify(`已定位到 ${incident.location}。`, 'info');
   };
 
   const activeIncidents = incidents.filter((incident) => incident.status === 'ACTIVE');
@@ -116,7 +111,7 @@ export function IncidentsView() {
   if (loading) {
     return (
       <div className="h-64 flex items-center justify-center">
-        <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+        <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -126,7 +121,7 @@ export function IncidentsView() {
       <div className="flex flex-wrap justify-between items-center gap-4">
         <div>
           <h2 className="text-lg font-medium text-gray-900 dark:text-zinc-100">突发事件与告警</h2>
-          <p className="text-sm text-gray-500 dark:text-zinc-400">支持事件上报、状态更新和地图联动定位。</p>
+          <p className="text-sm text-gray-500 dark:text-zinc-400">事件上报、地图联动和状态更新均已接入真实接口，并限定在 10 个路口范围内。</p>
         </div>
         <button
           onClick={() => setShowForm((prev) => !prev)}
@@ -142,11 +137,17 @@ export function IncidentsView() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs text-gray-500 dark:text-zinc-400 mb-1">事件类型</label>
-              <input
+              <select
                 value={form.type}
                 onChange={(event) => setForm((prev) => ({ ...prev, type: event.target.value }))}
                 className="w-full bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800 rounded-lg px-3 py-2 text-sm"
-              />
+              >
+                {INCIDENT_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-xs text-gray-500 dark:text-zinc-400 mb-1">严重程度</label>
@@ -160,12 +161,26 @@ export function IncidentsView() {
                 <option value="LOW">低</option>
               </select>
             </div>
-            <div className="md:col-span-2">
+            <div>
+              <label className="block text-xs text-gray-500 dark:text-zinc-400 mb-1">关联路口</label>
+              <select
+                value={form.relatedNodeId}
+                onChange={(event) => setForm((prev) => ({ ...prev, relatedNodeId: event.target.value }))}
+                className="w-full bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800 rounded-lg px-3 py-2 text-sm"
+              >
+                {SYSTEM_INTERSECTIONS.map((node) => (
+                  <option key={node.id} value={node.id}>
+                    {node.id} / {node.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
               <label className="block text-xs text-gray-500 dark:text-zinc-400 mb-1">事件位置</label>
               <input
-                value={form.location}
-                onChange={(event) => setForm((prev) => ({ ...prev, location: event.target.value }))}
-                className="w-full bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800 rounded-lg px-3 py-2 text-sm"
+                value={selectedNodeName}
+                disabled
+                className="w-full bg-gray-100 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-lg px-3 py-2 text-sm text-gray-500 dark:text-zinc-500"
               />
             </div>
             <div className="md:col-span-2">
@@ -190,12 +205,10 @@ export function IncidentsView() {
         </div>
       )}
 
-      {message && <p className="text-sm text-emerald-600 dark:text-emerald-400">{message}</p>}
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-4">
           <h3 className="font-medium text-gray-900 dark:text-zinc-300 flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
+            <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
             当前活跃告警 ({activeIncidents.length})
           </h3>
 
@@ -203,9 +216,7 @@ export function IncidentsView() {
             <div key={incident.id} className="p-5 rounded-xl border border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 hover:bg-gray-50 dark:hover:bg-zinc-800/50 transition-colors duration-300">
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg border ${getSeverityColor(incident.severity)}`}>
-                    {getTypeIcon(incident.type)}
-                  </div>
+                  <div className={`p-2 rounded-lg border ${getSeverityColor(incident.severity)}`}>{getTypeIcon(incident.type)}</div>
                   <div>
                     <div className="font-medium text-gray-900 dark:text-zinc-100">{incident.type}</div>
                     <div className="text-xs text-gray-500 dark:text-zinc-500 font-mono">{incident.id}</div>
@@ -247,24 +258,8 @@ export function IncidentsView() {
           <div className="p-5 rounded-xl border border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 transition-colors duration-300">
             <h3 className="font-medium mb-4 text-gray-900 dark:text-zinc-300">路网影响评估</h3>
             <div className="space-y-4">
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-gray-500 dark:text-zinc-400">路网容量占用</span>
-                  <span className="text-amber-500 dark:text-amber-400">{networkImpact}%</span>
-                </div>
-                <div className="h-1.5 w-full bg-gray-100 dark:bg-zinc-800 rounded-full overflow-hidden">
-                  <div className="h-full bg-amber-500 dark:bg-amber-400" style={{ width: `${networkImpact}%` }}></div>
-                </div>
-              </div>
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-gray-500 dark:text-zinc-400">平均延迟增加</span>
-                  <span className="text-red-500 dark:text-red-400">+{delayMinutes} 分钟</span>
-                </div>
-                <div className="h-1.5 w-full bg-gray-100 dark:bg-zinc-800 rounded-full overflow-hidden">
-                  <div className="h-full bg-red-500 dark:bg-red-400" style={{ width: `${Math.min(90, delayMinutes * 6)}%` }}></div>
-                </div>
-              </div>
+              <ImpactBar label="路网容量占用" value={`${networkImpact}%`} width={networkImpact} color="bg-amber-500 dark:bg-amber-400" />
+              <ImpactBar label="平均延误增加" value={`+${delayMinutes} 分钟`} width={Math.min(90, delayMinutes * 6)} color="bg-red-500 dark:bg-red-400" />
             </div>
           </div>
 
@@ -289,4 +284,37 @@ export function IncidentsView() {
       </div>
     </div>
   );
+}
+
+function ImpactBar({ label, value, width, color }: { label: string; value: string; width: number; color: string }) {
+  return (
+    <div>
+      <div className="flex justify-between text-sm mb-1">
+        <span className="text-gray-500 dark:text-zinc-400">{label}</span>
+        <span className="text-gray-900 dark:text-zinc-100">{value}</span>
+      </div>
+      <div className="h-1.5 w-full bg-gray-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+        <div className={`h-full ${color}`} style={{ width: `${width}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function getSeverityColor(severity: string) {
+  switch (severity) {
+    case 'HIGH':
+      return 'text-red-500 dark:text-red-400 bg-red-50 dark:bg-red-400/10 border-red-200 dark:border-red-400/20';
+    case 'MEDIUM':
+      return 'text-amber-500 dark:text-amber-400 bg-amber-50 dark:bg-amber-400/10 border-amber-200 dark:border-amber-400/20';
+    case 'LOW':
+      return 'text-blue-500 dark:text-blue-400 bg-blue-50 dark:bg-blue-400/10 border-blue-200 dark:border-blue-400/20';
+    default:
+      return 'text-gray-500 dark:text-zinc-400 bg-gray-50 dark:bg-zinc-400/10 border-gray-200 dark:border-zinc-400/20';
+  }
+}
+
+function getTypeIcon(type: string) {
+  if (type.includes('事故')) return <AlertTriangle className="w-5 h-5" />;
+  if (type.includes('拥堵')) return <Clock className="w-5 h-5" />;
+  return <MapPin className="w-5 h-5" />;
 }

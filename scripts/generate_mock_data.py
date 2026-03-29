@@ -1,97 +1,83 @@
-import pymysql
+﻿import math
 import random
-import math
 from datetime import datetime, timedelta
 
-# ==========================================
-# 数据库连接配置 (请根据你的本地 MySQL 修改)
-# ==========================================
+import pymysql
+
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',
-    'password': '123456', # 替换为你的 MySQL 密码
+    'password': '123456',
     'database': 'traffic_system',
     'charset': 'utf8mb4'
 }
 
-# 模拟的 7 个路口节点 (与前端地图对应)
 NODES = [
-    {'id': 'A1', 'name': '路口 A1 (市中心)', 'lat': 39.9042, 'lng': 116.4074},
-    {'id': 'B2', 'name': '路口 B2 (西北角)', 'lat': 39.9150, 'lng': 116.4000},
-    {'id': 'C3', 'name': '路口 C3 (东南角)', 'lat': 39.8950, 'lng': 116.4200},
-    {'id': 'D4', 'name': '路口 D4 (东北角)', 'lat': 39.9200, 'lng': 116.4300},
-    {'id': 'E5', 'name': '路口 E5 (西南角)', 'lat': 39.8900, 'lng': 116.3900},
-    {'id': 'F6', 'name': '路口 F6 (远东区)', 'lat': 39.9050, 'lng': 116.4500},
-    {'id': 'G7', 'name': '路口 G7 (远西北)', 'lat': 39.9300, 'lng': 116.3800}
+    {'id': 'A1', 'name': '成都天府大道-锦城大道路口', 'lat': 30.5702, 'lng': 104.0743},
+    {'id': 'B2', 'name': '成都益州大道-锦城大道路口', 'lat': 30.5738, 'lng': 104.0618},
+    {'id': 'C3', 'name': '成都天府大道-府城大道路口', 'lat': 30.5621, 'lng': 104.0749},
+    {'id': 'D4', 'name': '成都交子大道-天府大道路口', 'lat': 30.5784, 'lng': 104.0726},
+    {'id': 'E5', 'name': '成都剑南大道-锦城大道路口', 'lat': 30.5739, 'lng': 104.0468},
+    {'id': 'F6', 'name': '成都天府二街-益州大道路口', 'lat': 30.5476, 'lng': 104.0646},
+    {'id': 'G7', 'name': '成都天府三街-天府大道路口', 'lat': 30.5436, 'lng': 104.0768},
+    {'id': 'H8', 'name': '成都科华南路-锦尚西二路路口', 'lat': 30.5654, 'lng': 104.0835},
+    {'id': 'I9', 'name': '成都中环路火车南站段-科华南路路口', 'lat': 30.5952, 'lng': 104.0821},
+    {'id': 'J10', 'name': '成都成都东站西广场-邛崃山路路口', 'lat': 30.6188, 'lng': 104.1215}
 ]
 
+MODEL_NODES = {'A1', 'B2', 'C3', 'D4', 'E5', 'F6', 'G7'}
+
+
 def generate_flow_for_time(dt, node_id):
-    """
-    根据时间和路口生成具有真实规律的模拟车流量
-    - 早上 8:00 左右是早高峰
-    - 下午 18:00 左右是晚高峰
-    - 凌晨 3:00 流量最低
-    """
     hour = dt.hour + dt.minute / 60.0
-    
-    # 基础流量 (不同路口繁华程度不同)
-    base_flow = 100 if node_id in ['A1', 'C3', 'F6'] else 60
-    
-    # 早高峰 (8:00) 模拟 (正态分布曲线)
-    morning_peak = 150 * math.exp(-0.5 * ((hour - 8.0) / 1.5) ** 2)
-    
-    # 晚高峰 (18:00) 模拟
-    evening_peak = 120 * math.exp(-0.5 * ((hour - 18.0) / 2.0) ** 2)
-    
-    # 凌晨低谷 (3:00)
-    night_dip = -40 * math.exp(-0.5 * ((hour - 3.0) / 2.0) ** 2)
-    
-    # 加入随机噪声 (模拟真实世界的波动)
-    noise = random.uniform(-15, 15)
-    
-    # 计算最终流量 (保证不为负数)
-    flow = int(base_flow + morning_peak + evening_peak + night_dip + noise)
-    flow = max(10, flow) # 至少有 10 辆车
-    
-    # 根据流量估算车速 (流量越大，车速越慢)
-    # 假设限速 60km/h
-    speed = max(15.0, 60.0 - (flow / 300.0) * 45.0 + random.uniform(-5, 5))
-    
-    # 估算道路占有率 (0-1)
-    occupancy = min(0.95, flow / 400.0 + random.uniform(0, 0.05))
-    
+    base_flow = 105 if node_id in MODEL_NODES else 80
+
+    morning_peak = 150 * math.exp(-0.5 * ((hour - 8.0) / 1.4) ** 2)
+    midday_peak = 60 * math.exp(-0.5 * ((hour - 13.0) / 1.7) ** 2)
+    evening_peak = 135 * math.exp(-0.5 * ((hour - 18.0) / 1.8) ** 2)
+    night_dip = -38 * math.exp(-0.5 * ((hour - 3.0) / 2.0) ** 2)
+    noise = random.uniform(-12, 12)
+
+    flow = int(base_flow + morning_peak + midday_peak + evening_peak + night_dip + noise)
+    flow = max(12, flow)
+
+    speed = max(15.0, 58.0 - (flow / 320.0) * 42.0 + random.uniform(-4, 4))
+    occupancy = min(0.95, flow / 420.0 + random.uniform(0, 0.04))
+
     return flow, round(speed, 2), round(occupancy, 4)
 
+
 def main():
-    print("正在连接数据库...")
+    print('正在连接数据库...')
     try:
         connection = pymysql.connect(**DB_CONFIG)
         cursor = connection.cursor()
-    except Exception as e:
-        print(f"数据库连接失败: {e}")
-        print("请确保你已经在本地安装了 MySQL，创建了 traffic_system 数据库，并修改了脚本中的密码！")
+    except Exception as error:
+        print(f'数据库连接失败: {error}')
         return
 
     try:
-        # 1. 插入节点数据
-        print("正在插入路网节点数据 (nodes)...")
+        print('正在写入成都 10 个路口节点...')
         for node in NODES:
-            sql = "INSERT IGNORE INTO nodes (id, name, lat, lng) VALUES (%s, %s, %s, %s)"
+            sql = '''
+                INSERT INTO nodes (id, name, lat, lng)
+                VALUES (%s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                  name = VALUES(name),
+                  lat = VALUES(lat),
+                  lng = VALUES(lng)
+            '''
             cursor.execute(sql, (node['id'], node['name'], node['lat'], node['lng']))
         connection.commit()
 
-        # 2. 生成历史交通流数据 (过去 30 天，每 15 分钟一条)
-        # 30天 * 24小时 * 4次/小时 * 7个路口 = 20,160 条数据
         days_to_generate = 30
         end_time = datetime.now().replace(minute=0, second=0, microsecond=0)
         start_time = end_time - timedelta(days=days_to_generate)
-        
-        print(f"正在生成从 {start_time} 到 {end_time} 的模拟交通流数据...")
-        print("预计生成 20,160 条记录，请稍候...")
-        
+
+        print(f'正在生成 {start_time} 到 {end_time} 的模拟交通流数据...')
         current_time = start_time
         records_to_insert = []
-        
+
         while current_time < end_time:
             for node in NODES:
                 flow, speed, occupancy = generate_flow_for_time(current_time, node['id'])
@@ -102,32 +88,34 @@ def main():
                     speed,
                     occupancy
                 ))
-            
-            # 每 15 分钟一个时间步 (LST-GCN 常用的时间粒度)
+
             current_time += timedelta(minutes=15)
-            
-            # 批量插入 (每 1000 条插入一次，提高速度)
+
             if len(records_to_insert) >= 1000:
-                sql = "INSERT INTO traffic_flow (node_id, timestamp, flow, speed, occupancy) VALUES (%s, %s, %s, %s, %s)"
-                cursor.executemany(sql, records_to_insert)
+                cursor.executemany(
+                    'INSERT INTO traffic_flow (node_id, timestamp, flow, speed, occupancy) VALUES (%s, %s, %s, %s, %s)',
+                    records_to_insert
+                )
                 connection.commit()
                 records_to_insert = []
-                print(f"已生成至 {current_time.strftime('%Y-%m-%d %H:%M:%S')}...")
+                print(f'已生成至 {current_time.strftime("%Y-%m-%d %H:%M:%S")}')
 
-        # 插入剩余的数据
         if records_to_insert:
-            sql = "INSERT INTO traffic_flow (node_id, timestamp, flow, speed, occupancy) VALUES (%s, %s, %s, %s, %s)"
-            cursor.executemany(sql, records_to_insert)
+            cursor.executemany(
+                'INSERT INTO traffic_flow (node_id, timestamp, flow, speed, occupancy) VALUES (%s, %s, %s, %s, %s)',
+                records_to_insert
+            )
             connection.commit()
 
-        print("🎉 数据生成完毕！成功插入约 20,000 条模拟交通流数据。")
-
-    except Exception as e:
-        print(f"发生错误: {e}")
+        print('模拟数据生成完成。')
+        print('注意: 当前 LST-GCN 权重仍只覆盖 A1-G7，若要预测 H8-J10，需要重新训练并替换权重文件。')
+    except Exception as error:
         connection.rollback()
+        print(f'执行过程中发生错误: {error}')
     finally:
         cursor.close()
         connection.close()
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     main()
