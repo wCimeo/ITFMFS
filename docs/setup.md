@@ -37,7 +37,7 @@ mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS traffic_system CHARACTER SET 
 ### 2. 导入表结构
 
 ```powershell
-mysql -u root -p traffic_system < "c:\Users\陈梦\Desktop\traffic_system.sql"
+mysql -u root -p traffic_system < "D:\Projects\VS_Code\ITFMFS\database\schema.sql"
 ```
 
 如果你本地数据库中已经保留了测试数据，也可以直接继续使用。
@@ -63,7 +63,7 @@ DB_NAME=traffic_system
 ### 1. Node 依赖
 
 ```powershell
-cd /d e:\Obsidian\graduationThesis\ITFMFS
+cd /d D:\Projects\VS_Code\ITFMFS
 npm.cmd install
 ```
 
@@ -92,7 +92,7 @@ pip install flask==3.1.3 numpy==2.0.1 torch==2.5.1 pymysql==1.1.2 pandas==3.0.1 
 
 ```powershell
 conda activate thesis
-cd /d e:\Obsidian\graduationThesis\ITFMFS\ai_service
+cd /d D:\Projects\VS_Code\ITFMFS\ai_service
 python app.py
 ```
 
@@ -105,7 +105,7 @@ http://127.0.0.1:5000
 ### 终端 2：启动前端和 Express 服务
 
 ```powershell
-cd /d e:\Obsidian\graduationThesis\ITFMFS
+cd /d D:\Projects\VS_Code\ITFMFS
 npm.cmd run dev
 ```
 
@@ -121,7 +121,7 @@ http://localhost:3000
 
 ```powershell
 conda activate thesis
-cd /d e:\Obsidian\graduationThesis\ITFMFS
+cd /d D:\Projects\VS_Code\ITFMFS
 python scripts\generate_mock_data.py
 ```
 
@@ -191,7 +191,6 @@ npm.cmd run start
 
 - 检查 `ai_service` 终端输出
 - 确认 `ai_service/lst_gcn_weights_10nodes.pth` 存在
-- 如果你额外准备了 `ai_service/lst_gcn_weights.pth`，系统也可以回退到 7 路口预测
 
 ### 3. MySQL 报密码错误
 

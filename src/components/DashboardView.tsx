@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useState } from 'react';
 import { FlowChart } from './FlowChart';
 import { apiFetch } from '../lib/api';
-import { MODEL_NODE_IDS } from '../constants/intersections';
+import { PREDICTION_NODE_IDS } from '../constants/intersections';
 
 interface DashboardMetrics {
   timestamp: string | null;
@@ -48,7 +48,7 @@ export function DashboardView({
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [chartPayload, setChartPayload] = useState<FlowChartPayload | null>(null);
   const [signalStatus, setSignalStatus] = useState<SignalStatus | null>(null);
-  const [selectedNode, setSelectedNode] = useState(MODEL_NODE_IDS[0]);
+  const [selectedNode, setSelectedNode] = useState(PREDICTION_NODE_IDS[0]);
   const [selectedDate, setSelectedDate] = useState('');
   const [chartRange, setChartRange] = useState({ startIndex: 0, endIndex: 23 });
   const [loading, setLoading] = useState(true);
@@ -161,7 +161,7 @@ export function DashboardView({
                   onChange={(event) => setSelectedNode(event.target.value)}
                   className="px-3 py-2 rounded-lg border border-gray-200 dark:border-zinc-800 bg-gray-50 dark:bg-zinc-950 text-sm"
                 >
-                  {(chartPayload?.availableNodes ?? [...MODEL_NODE_IDS]).map((nodeId) => (
+                  {(chartPayload?.availableNodes ?? [...PREDICTION_NODE_IDS]).map((nodeId) => (
                     <option key={nodeId} value={nodeId}>
                       {nodeId}
                     </option>
@@ -223,7 +223,7 @@ export function DashboardView({
           <div className="flex-1 flex flex-col justify-center space-y-6">
             <div className="p-4 rounded-lg bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800">
               <div className="text-sm text-gray-500 dark:text-zinc-400">当前优化路口</div>
-              <div className="mt-1 text-xl font-semibold">{signalStatus?.intersection_id ?? MODEL_NODE_IDS[0]}</div>
+              <div className="mt-1 text-xl font-semibold">{signalStatus?.intersection_id ?? PREDICTION_NODE_IDS[0]}</div>
             </div>
             <div className="p-4 rounded-lg bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800">
               <div className="text-sm text-gray-500 dark:text-zinc-400">推荐相位</div>

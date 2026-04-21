@@ -34,7 +34,7 @@ pip install pandas==3.0.1 pymysql==1.1.2
 
 ```powershell
 conda activate thesis
-cd /d e:\Obsidian\graduationThesis\ITFMFS
+cd /d D:\Projects\VS_Code\ITFMFS
 python scripts\import_pems_data.py --stations "D:\PeMS\stations.csv" --traffic "D:\PeMS\flow.csv"
 ```
 
@@ -80,4 +80,3 @@ python scripts\import_pems_data.py ^
 ```powershell
 python scripts\import_pems_data.py --stations "D:\PeMS\stations.csv" --traffic "D:\PeMS\flow.csv" --limit 5000
 ```
-

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from pathlib import Path
@@ -11,25 +11,6 @@ from flask import Flask, jsonify, request
 app = Flask(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_WINDOW_SIZE = 12
-
-SEVEN_NODE_SPEC = {
-    'variant': '7nodes',
-    'node_ids': ['A1', 'B2', 'C3', 'D4', 'E5', 'F6', 'G7'],
-    'hidden_dim': 64,
-    'window_size': 12,
-    'max_flow': 250.0,
-    'weights_path': BASE_DIR / 'lst_gcn_weights.pth',
-    'metadata_path': None,
-    'adjacency': [
-        [1, 1, 1, 0, 0, 0, 0],
-        [1, 1, 0, 1, 0, 0, 0],
-        [1, 0, 1, 0, 1, 0, 0],
-        [0, 1, 0, 1, 0, 1, 0],
-        [0, 0, 1, 0, 1, 0, 1],
-        [0, 0, 0, 1, 0, 1, 0],
-        [0, 0, 0, 0, 1, 0, 1]
-    ]
-}
 
 TEN_NODE_SPEC = {
     'variant': '10nodes',
@@ -138,26 +119,21 @@ def load_runtime(spec: dict):
     }
 
 
-AVAILABLE_MODELS: dict[int, dict] = {}
-for raw_spec in (SEVEN_NODE_SPEC, with_metadata(TEN_NODE_SPEC)):
-    runtime = load_runtime(raw_spec)
-    if runtime:
-        AVAILABLE_MODELS[len(runtime['node_ids'])] = runtime
+RUNTIME = load_runtime(with_metadata(TEN_NODE_SPEC))
 
 
 @app.route('/model-info', methods=['GET'])
 def model_info():
     return jsonify({
         'status': 'success',
-        'available_variants': [
+        'available_variants': [] if not RUNTIME else [
             {
-                'variant': runtime['variant'],
-                'node_ids': runtime['node_ids'],
-                'window_size': runtime['window_size'],
-                'weights_path': runtime['weights_path'],
-                'metadata_path': runtime['metadata_path']
+                'variant': RUNTIME['variant'],
+                'node_ids': RUNTIME['node_ids'],
+                'window_size': RUNTIME['window_size'],
+                'weights_path': RUNTIME['weights_path'],
+                'metadata_path': RUNTIME['metadata_path']
             }
-            for runtime in AVAILABLE_MODELS.values()
         ]
     })
 
@@ -165,6 +141,12 @@ def model_info():
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
+        if not RUNTIME:
+            return jsonify({
+                'status': 'error',
+                'message': '未检测到 10 路口权重文件 lst_gcn_weights_10nodes.pth。'
+            }), 500
+
         payload = request.get_json(force=True, silent=False) or {}
         history = payload.get('history')
         if history is None:
@@ -175,36 +157,34 @@ def predict():
             return jsonify({'status': 'error', 'message': 'history 必须是二维数组，形如 [时间步][节点]。'}), 400
 
         seq_len, node_count = history_data.shape
-        runtime = AVAILABLE_MODELS.get(node_count)
-        if not runtime:
-            available = sorted(AVAILABLE_MODELS.keys())
+        if node_count != len(RUNTIME['node_ids']):
             return jsonify({
                 'status': 'error',
-                'message': f'当前 AI 服务仅支持节点数 {available} 的模型输入，收到的是 {node_count} 节点。'
+                'message': f"当前 AI 服务仅支持 {len(RUNTIME['node_ids'])} 路口输入，收到的是 {node_count} 路口。"
             }), 400
 
-        if seq_len != runtime['window_size']:
+        if seq_len != RUNTIME['window_size']:
             return jsonify({
                 'status': 'error',
-                'message': f"模型 {runtime['variant']} 需要 {runtime['window_size']} 个历史时间步，收到的是 {seq_len}。"
+                'message': f"模型 {RUNTIME['variant']} 需要 {RUNTIME['window_size']} 个历史时间步，收到的是 {seq_len}。"
             }), 400
 
-        history_norm = history_data / runtime['max_flow']
+        history_norm = history_data / RUNTIME['max_flow']
         input_tensor = torch.FloatTensor(history_norm).unsqueeze(0)
 
         with torch.no_grad():
-            prediction_norm = runtime['model'](input_tensor, runtime['adjacency_tensor'])
+            prediction_norm = RUNTIME['model'](input_tensor, RUNTIME['adjacency_tensor'])
 
-        prediction = (prediction_norm.numpy() * runtime['max_flow']).round().astype(int)
+        prediction = (prediction_norm.numpy() * RUNTIME['max_flow']).round().astype(int)
         result = {
             node_id: int(prediction[0][index])
-            for index, node_id in enumerate(runtime['node_ids'])
+            for index, node_id in enumerate(RUNTIME['node_ids'])
         }
 
         return jsonify({
             'status': 'success',
-            'variant': runtime['variant'],
-            'node_ids': runtime['node_ids'],
+            'variant': RUNTIME['variant'],
+            'node_ids': RUNTIME['node_ids'],
             'prediction': result
         })
     except Exception as error:
@@ -213,10 +193,8 @@ def predict():
 
 if __name__ == '__main__':
     print('AI 预测微服务已启动，监听端口 5000...')
-    print('当前可用模型:')
-    if AVAILABLE_MODELS:
-        for runtime in AVAILABLE_MODELS.values():
-            print(f"- {runtime['variant']}: {len(runtime['node_ids'])} 路口, 权重文件 {runtime['weights_path']}")
+    if RUNTIME:
+        print(f"- 当前仅启用 10 路口模型: {RUNTIME['weights_path']}")
     else:
-        print('- 未找到可用权重文件，请先放置 lst_gcn_weights.pth 或 lst_gcn_weights_10nodes.pth')
+        print('- 未找到 10 路口权重文件，请先放置 lst_gcn_weights_10nodes.pth')
     app.run(host='0.0.0.0', port=5000)

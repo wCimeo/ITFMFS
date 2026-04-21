@@ -9,11 +9,10 @@ import {
 import { bootstrapDatabase, pool, testConnection } from './db.ts';
 import { getTrafficFlowSimulatorStatus, startTrafficFlowSimulator } from './trafficSimulator.ts';
 import {
-  MODEL_NODE_IDS,
+  PREDICTION_NODE_IDS,
   SYSTEM_INTERSECTIONS,
   SYSTEM_NODE_IDS,
   getIntersectionName,
-  normalizeModelNodeId,
   normalizeSystemNodeId
 } from './intersections.ts';
 
@@ -24,7 +23,7 @@ const PEAK_WINDOWS = [
 ];
 
 const MODEL_SCOPE_NOTE =
-  '当前 LST-GCN 权重仅覆盖 A1-G7。系统路网已扩展到 10 个路口，H8-J10 可用于地图、事件和路径管理，如需纳入模型预测需要重新训练并替换 10 路口权重。';
+  '当前系统仅保留 10 路口预测，A1-J10 都会参与 LST-GCN 推理与结果展示。';
 const AI_SERVICE_BASE_URL = 'http://127.0.0.1:5000';
 const MODEL_INFO_CACHE_TTL_MS = 30 * 1000;
 
@@ -37,12 +36,10 @@ interface AiModelVariantInfo {
 }
 
 interface PredictionRuntime {
-  requestedScope: 'auto' | 7 | 10;
-  activeScope: 7 | 10;
+  activeScope: 10;
   nodeIds: string[];
   windowSize: number;
   variant: string;
-  availableScopes: Array<7 | 10>;
   scopeNote: string;
 }
 
@@ -78,7 +75,7 @@ type AuthenticatedRequest = Request & { authUser?: AdminProfileRow };
 
 let isDbConnected = false;
 let latestSignalStatus = {
-  intersection_id: MODEL_NODE_IDS[0],
+  intersection_id: PREDICTION_NODE_IDS[0],
   phase: 'NS_GREEN',
   duration: 45,
   optimized_at: new Date().toISOString(),
@@ -145,25 +142,10 @@ function sanitizeAdminProfile(profile: AdminProfileRow | null) {
   return safeProfile;
 }
 
-function normalizePredictionScopeInput(value: unknown): 'auto' | 7 | 10 {
-  if (value === 7 || value === '7' || value === '7nodes') {
-    return 7;
-  }
-  if (value === 10 || value === '10' || value === '10nodes') {
-    return 10;
-  }
-  return 'auto';
-}
-
-function buildScopeNote(activeScope: 7 | 10, availableScopes: Array<7 | 10>) {
-  const activeLabel =
-    activeScope === 10
-      ? '当前已启用 10 路口预测模型，A1-J10 都可以参与真实预测。'
-      : '当前使用 7 路口预测模型，真实预测仍覆盖 A1-G7。';
-  const availableLabel = availableScopes.includes(10)
-    ? 'AI 服务已检测到 10 路口权重。'
-    : 'AI 服务暂未检测到 10 路口权重，如需让 H8-J10 进入预测，请先训练并放置 lst_gcn_weights_10nodes.pth。';
-  return `${activeLabel} ${availableLabel}`;
+function buildScopeNote(modelReady: boolean) {
+  return modelReady
+    ? '当前已启用 10 路口预测模型，A1-J10 都会参与真实预测。'
+    : '当前系统仅保留 10 路口预测。暂未检测到 10 路口权重，请确认 lst_gcn_weights_10nodes.pth 已存在并已启动 Flask 服务。';
 }
 
 async function getAiModelVariants(forceRefresh = false) {
@@ -190,46 +172,26 @@ async function getAiModelVariants(forceRefresh = false) {
   }
 }
 
-async function resolvePredictionRuntime(scopeInput: unknown, strict = false): Promise<PredictionRuntime> {
-  const requestedScope = normalizePredictionScopeInput(scopeInput);
+async function resolvePredictionRuntime(_scopeInput: unknown, strict = false): Promise<PredictionRuntime> {
   const variants = await getAiModelVariants();
-  const availableScopes = Array.from(
-    new Set(
-      variants
-        .map((variant) => Number(Array.isArray(variant?.node_ids) ? variant.node_ids.length : 0))
-        .filter((scope) => scope === 7 || scope === 10)
-    )
-  ) as Array<7 | 10>;
-
-  let activeScope: 7 | 10;
-  if (requestedScope === 'auto') {
-    activeScope = availableScopes.includes(10) ? 10 : 7;
-  } else if (availableScopes.includes(requestedScope)) {
-    activeScope = requestedScope;
-  } else if (strict) {
-    throw new Error(`当前 AI 服务不支持 ${requestedScope} 路口预测，请先准备对应权重。`);
-  } else {
-    activeScope = availableScopes.includes(10) ? 10 : 7;
+  const matchedVariant = variants.find(
+    (variant) => Array.isArray(variant?.node_ids) && variant.node_ids.length === PREDICTION_NODE_IDS.length
+  );
+  if (strict && !matchedVariant) {
+    throw new Error('当前 AI 服务未检测到 10 路口预测模型，请确认 lst_gcn_weights_10nodes.pth 已存在并已启动 Flask 服务。');
   }
 
-  const matchedVariant = variants.find(
-    (variant) => Array.isArray(variant?.node_ids) && variant.node_ids.length === activeScope
-  );
-  const nodeIds = activeScope === 10 ? [...SYSTEM_NODE_IDS] : [...MODEL_NODE_IDS];
-
   return {
-    requestedScope,
-    activeScope,
-    nodeIds,
+    activeScope: 10,
+    nodeIds: [...PREDICTION_NODE_IDS],
     windowSize: Number(matchedVariant?.window_size ?? 12),
-    variant: matchedVariant?.variant ?? `${activeScope}nodes`,
-    availableScopes,
-    scopeNote: buildScopeNote(activeScope, availableScopes)
+    variant: matchedVariant?.variant ?? '10nodes',
+    scopeNote: buildScopeNote(Boolean(matchedVariant))
   };
 }
 
-function normalizePredictionNodeId(value: unknown, activeScope: 7 | 10) {
-  return activeScope === 10 ? normalizeSystemNodeId(value) : normalizeModelNodeId(value);
+function normalizePredictionNodeId(value: unknown) {
+  return normalizeSystemNodeId(value);
 }
 
 async function getAdminProfileById(userId: number) {
@@ -630,7 +592,13 @@ async function getPemsMapSnapshot() {
     }
   };
 }
-async function getChartPayload(nodeId: string, dateInput: string | null, focus: string | undefined, availableNodes: string[] = [...MODEL_NODE_IDS], scopeNote = MODEL_SCOPE_NOTE) {
+async function getChartPayload(
+  nodeId: string,
+  dateInput: string | null,
+  focus: string | undefined,
+  availableNodes: string[] = [...PREDICTION_NODE_IDS],
+  scopeNote = MODEL_SCOPE_NOTE
+) {
   const [latestRows] = await pool.query<any[]>(
     `
       SELECT DATE(MAX(timestamp)) AS latest_date
@@ -1071,7 +1039,7 @@ async function optimizeSignal() {
     `
   );
 
-  const busiest = rows[0] ?? { node_id: MODEL_NODE_IDS[0], flow: 120 };
+  const busiest = rows[0] ?? { node_id: PREDICTION_NODE_IDS[0], flow: 120 };
   const [adminRows] = await pool.query<any[]>('SELECT congestion_threshold, auto_signal_control FROM users ORDER BY id ASC LIMIT 1');
   const threshold = asNumber(adminRows[0]?.congestion_threshold, 130);
 
@@ -1196,7 +1164,6 @@ export async function setupRoutes(app: Application) {
     const runtime = await resolvePredictionRuntime(req.query.scope);
     res.json({
       systemNodes: SYSTEM_INTERSECTIONS,
-      modelNodeIds: [...MODEL_NODE_IDS],
       predictionNodeIds: runtime.nodeIds,
       activeScope: runtime.activeScope,
       scopeNote: runtime.scopeNote
@@ -1225,7 +1192,7 @@ export async function setupRoutes(app: Application) {
       return res.json([]);
     }
 
-    const nodeId = normalizeModelNodeId(req.query.nodeId);
+    const nodeId = normalizeSystemNodeId(req.query.nodeId);
     const date = toDateKey(req.query.date) ?? new Date().toISOString().slice(0, 10);
 
     try {
@@ -1302,7 +1269,7 @@ export async function setupRoutes(app: Application) {
   app.get('/api/predict/latest', async (req: Request, res: Response) => {
     const runtime = await resolvePredictionRuntime(req.query.scope);
     const emptyPayload = {
-      nodeId: normalizePredictionNodeId(req.query.nodeId, runtime.activeScope),
+      nodeId: normalizePredictionNodeId(req.query.nodeId),
       target_time: null,
       predicted_flow: null,
       confidence: null,
@@ -1316,7 +1283,7 @@ export async function setupRoutes(app: Application) {
       return res.json(emptyPayload);
     }
 
-    const nodeId = normalizePredictionNodeId(req.query.nodeId, runtime.activeScope);
+    const nodeId = normalizePredictionNodeId(req.query.nodeId);
     try {
       const [rows] = await pool.query<any[]>(
         `
@@ -1350,7 +1317,7 @@ export async function setupRoutes(app: Application) {
   app.post('/api/signal/optimize', async (_req: Request, res: Response) => {
     if (!isDbConnected) {
       latestSignalStatus = {
-        intersection_id: MODEL_NODE_IDS[0],
+        intersection_id: PREDICTION_NODE_IDS[0],
         phase: 'NS_GREEN',
         duration: 45,
         optimized_at: new Date().toISOString(),
@@ -1526,7 +1493,7 @@ export async function setupRoutes(app: Application) {
 
   app.get('/api/visual/flowchart', async (req: Request, res: Response) => {
     const runtime = await resolvePredictionRuntime(req.query.scope);
-    const nodeId = normalizePredictionNodeId(req.query.nodeId, runtime.activeScope);
+    const nodeId = normalizePredictionNodeId(req.query.nodeId);
     const focus = typeof req.query.focus === 'string' ? req.query.focus : undefined;
     const date = toDateKey(req.query.date);
 

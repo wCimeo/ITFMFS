@@ -96,7 +96,7 @@ ADMIN_PASSWORD=Traffic@123456
 ### 4. 交通流量预测
 
 - 已接入 LST-GCN 推理服务
-- 当前后端支持根据可用权重自动切换 `7 路口 / 10 路口` 预测范围
+- 当前预测模块仅保留 `10` 路口范围，A1-J10 都会参与模型推理
 - 当前模型输入窗口默认为 `12` 个时间步
 - 当前系统粒度按 `15 分钟` 组织历史数据和预测结果
 - 预测结果会写入 `predictions` 表，控制台图表按小时聚合这些真实预测结果后再展示
@@ -151,23 +151,22 @@ ADMIN_PASSWORD=Traffic@123456
 ### 1. 路口范围
 
 - 当前系统地图、事件、路线推荐等模块已扩展到 `10` 个成都路口
-- 其中预测模块支持 `7 路口 / 10 路口` 自动切换，但实际可用范围取决于仓库中存在的权重文件
+- 当前预测模块固定为 `10` 个成都路口，系统范围与模型范围保持一致
 
 ### 2. 模型权重状态
 
 当前 AI 服务逻辑如下：
 
 - 如果存在 `ai_service/lst_gcn_weights_10nodes.pth`，则可启用 `10` 路口预测
-- 如果仓库中同时提供 `ai_service/lst_gcn_weights.pth`，则系统也支持 `7` 路口预测回退
 - 相关元数据可通过 `ai_service/lst_gcn_10nodes_metadata.json` 辅助读取
-- 当前仓库实际已包含 `10` 路口权重，但未包含 `7` 路口权重文件
+- 当前仓库仅保留 `10` 路口权重与对应元数据，不再维护 `7` 路口预测分支
 
 ### 3. 当前训练与推理相关文件
 
 - `ai_service/thesis_10nodes.ipynb`：按原 notebook 风格扩展的 10 路口版本
 - `ai_service/app.py`：当前实际使用的 Flask 推理服务
 - `scripts/export_training_csv.py`：从 MySQL 导出训练 CSV
-- 说明：当前仓库未包含 `ai_service/thesis.ipynb` 和 `ai_service/train_lst_gcn_10nodes.py`
+- 说明：当前仓库只保留 10 路口训练与推理相关文件
 
 ### 4. 当前实时更新方式
 
@@ -213,14 +212,14 @@ TRAFFIC_SIMULATOR_STEP_MINUTES=15
 
 ```powershell
 conda activate thesis
-cd /d D:\VScodeSoft\ITFMFS\ai_service
+cd /d D:\Projects\VS_Code\ITFMFS\ai_service
 python app.py
 ```
 
 ### 3. 启动前端与 Express 服务
 
 ```powershell
-cd /d D:\VScodeSoft\ITFMFS
+cd /d D:\Projects\VS_Code\ITFMFS
 npm.cmd install
 npm.cmd run dev
 ```
@@ -242,7 +241,7 @@ npm.cmd run dev
 ```
 
 ```powershell
-cd ai_service
+cd /d D:\Projects\VS_Code\ITFMFS\ai_service
 python app.py
 ```
 
@@ -250,7 +249,7 @@ python app.py
 
 ```powershell
 conda activate thesis
-cd /d D:\VScodeSoft\ITFMFS
+cd /d D:\Projects\VS_Code\ITFMFS
 python scripts\generate_mock_data.py
 ```
 
@@ -260,7 +259,7 @@ python scripts\generate_mock_data.py
 
 ```powershell
 conda activate thesis
-cd /d D:\VScodeSoft\ITFMFS
+cd /d D:\Projects\VS_Code\ITFMFS
 python scripts\import_pems_data.py --stations "D:\PeMS\stations.csv" --traffic "D:\PeMS\flow.csv"
 ```
 
@@ -268,8 +267,8 @@ python scripts\import_pems_data.py --stations "D:\PeMS\stations.csv" --traffic "
 
 ```powershell
 conda activate thesis
-cd /d D:\VScodeSoft\ITFMFS
-python scripts\export_training_csv.py --output ai_service\flow_10nodes.csv --scope 10
+cd /d D:\Projects\VS_Code\ITFMFS
+python scripts\export_training_csv.py --output ai_service\flow_10nodes.csv
 ```
 
 ### 5. 训练 10 路口权重

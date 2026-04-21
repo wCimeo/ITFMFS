@@ -125,7 +125,8 @@ function buildSyntheticRow(nodeIndex: number, timestamp: Date, previous: Previou
   const intersection = SYSTEM_INTERSECTIONS[nodeIndex];
   const demandFactor = computeDemandFactor(timestamp);
   const noise = deterministicNoise(timestamp.getTime(), nodeIndex);
-  const expectedFlow = intersection.seedFlow * demandFactor * (intersection.modelEnabled ? 1.04 : 0.97);
+  const corridorFactor = 0.96 + (nodeIndex % 4) * 0.03;
+  const expectedFlow = intersection.seedFlow * demandFactor * corridorFactor;
   const previousFlow = previous?.flow ?? intersection.seedFlow;
   const flow = Math.round(clamp(previousFlow * 0.58 + expectedFlow * 0.42 + noise * 14, 30, 420));
   const speed = Number(clamp(62 - flow * 0.12 + noise * 2.5, 18, 72).toFixed(2));
