@@ -667,30 +667,31 @@ async function getChartPayload(nodeId: string, dateInput: string | null, focus: 
     [nodeId, selectedDate]
   );
 
-  const [forecastRows] = await pool.query<any[]>(
+  const [predictionHourlyRows] = await pool.query<any[]>(
     `
-      SELECT HOUR(timestamp) AS hour_slot, AVG(flow) AS avg_flow
-      FROM traffic_flow
+      SELECT HOUR(target_time) AS hour_slot, AVG(predicted_flow) AS avg_predicted_flow
+      FROM predictions
       WHERE node_id = ?
-        AND DATE(timestamp) BETWEEN DATE_SUB(?, INTERVAL 6 DAY) AND ?
-      GROUP BY HOUR(timestamp)
-      ORDER BY HOUR(timestamp)
+        AND DATE(target_time) = ?
+      GROUP BY HOUR(target_time)
+      ORDER BY HOUR(target_time)
     `,
-    [nodeId, selectedDate, selectedDate]
+    [nodeId, selectedDate]
   );
 
   const historyByHour = new Map(historicalRows.map((row) => [Number(row.hour_slot), asNumber(row.avg_flow)]));
-  const forecastByHour = new Map(forecastRows.map((row) => [Number(row.hour_slot), asNumber(row.avg_flow)]));
+  const predictionByHour = new Map(
+    predictionHourlyRows.map((row) => [Number(row.hour_slot), asNumber(row.avg_predicted_flow)])
+  );
 
   const data = Array.from({ length: 24 }, (_, hour) => {
     const actualHour = hour + 1;
     const historical = historyByHour.has(hour) ? Number(historyByHour.get(hour)!.toFixed(1)) : null;
-    const forecastBase = forecastByHour.get(hour) ?? historical ?? 0;
     return {
       hour,
       time: `${String(actualHour).padStart(2, '0')}:00`,
       historical,
-      predicted: Number(forecastBase.toFixed(1)),
+      predicted: predictionByHour.has(hour) ? Number(predictionByHour.get(hour)!.toFixed(1)) : null,
       periodLabel: PEAK_WINDOWS.find((window) => actualHour >= window.startHour && actualHour <= window.endHour)?.label ?? '平峰'
     };
   });

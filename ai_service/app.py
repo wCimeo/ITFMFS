@@ -105,7 +105,7 @@ def with_metadata(spec: dict):
     merged['node_ids'] = metadata.get('node_ids', merged['node_ids'])
     merged['hidden_dim'] = int(metadata.get('hidden_dim', merged['hidden_dim']))
     merged['window_size'] = int(metadata.get('window_size', merged['window_size']))
-    merged['max_flow'] = float(metadata.get('max_flow', merged['max_flow']))
+    merged['max_flow'] = float(metadata.get('max_flow', metadata.get('max_val', merged['max_flow'])))
     if metadata.get('adjacency_matrix'):
         merged['adjacency'] = metadata['adjacency_matrix']
     return merged

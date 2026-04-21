@@ -151,7 +151,9 @@ export function DashboardView({
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 className="font-medium">交通流量预测（日内 1-24 点）</h3>
-                <p className="text-sm text-gray-500 dark:text-zinc-400 mt-1">支持全天趋势查看、早中晚高峰快速聚焦，以及图表拖拽缩放。</p>
+                <p className="text-sm text-gray-500 dark:text-zinc-400 mt-1">
+                  蓝线为所选日期的历史真实流量，绿线为 `predictions` 表中的模型预测结果按小时聚合后的展示。
+                </p>
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <select
@@ -206,10 +208,10 @@ export function DashboardView({
                 <span>当前日期：{chartPayload.date ?? '暂无日期'}</span>
                 <span>当前节点：{chartPayload.nodeId}</span>
                 <span>
-                  最新预测：
+                  最新单次预测：
                   {chartPayload.latestPrediction
-                    ? `${chartPayload.latestPrediction.predicted_flow} 辆/小时`
-                    : '\u5c1a\u672a\u751f\u6210\u65b0\u7684\u9884\u6d4b\u7ed3\u679c'}
+                    ? `${chartPayload.latestPrediction.predicted_flow} 辆/小时（${new Date(chartPayload.latestPrediction.target_time).toLocaleString('zh-CN')}）`
+                    : '尚未生成新的预测结果'}
                 </span>
               </div>
             </>

@@ -160,7 +160,7 @@ npm.cmd run start
 1. 访问 `http://localhost:3000`
 2. 首页是否能正常打开
 3. 地图页面是否显示路口节点或 PeMS 站点
-4. 折线图是否返回 1-24 点历史流量和预测结果
+4. 折线图是否返回 1-24 点历史流量，以及从 `predictions` 表聚合出来的预测结果
 5. 控制台是否出现 MySQL 连接成功日志
 6. Flask 终端是否收到 `/predict` 请求
 
@@ -190,7 +190,8 @@ npm.cmd run start
 排查建议：
 
 - 检查 `ai_service` 终端输出
-- 确认 `ai_service/lst_gcn_weights.pth` 存在
+- 确认 `ai_service/lst_gcn_weights_10nodes.pth` 存在
+- 如果你额外准备了 `ai_service/lst_gcn_weights.pth`，系统也可以回退到 7 路口预测
 
 ### 3. MySQL 报密码错误
 

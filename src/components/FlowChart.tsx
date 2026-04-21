@@ -58,7 +58,7 @@ export function FlowChart({ data, peaks, range, onRangeChange }: FlowChartProps)
             formatter={(value: number | null, name: string) => [`${value ?? '--'} 辆/小时`, name]}
             labelFormatter={(label, payload) => {
               const point = payload?.[0]?.payload as FlowChartPoint | undefined;
-              return point ? `${label} · ${point.periodLabel}` : label;
+              return point ? `${label} 路 ${point.periodLabel}` : label;
             }}
             contentStyle={{
               backgroundColor: '#18181b',
@@ -81,14 +81,14 @@ export function FlowChart({ data, peaks, range, onRangeChange }: FlowChartProps)
           />
           <Line
             type="monotone"
-            name="预测趋势"
+            name="模型预测结果"
             dataKey="predicted"
             stroke="#10b981"
             strokeWidth={2.5}
             strokeDasharray="6 5"
-            dot={false}
+            dot={{ r: 4, strokeWidth: 0, fill: '#10b981' }}
             activeDot={{ r: 6 }}
-            connectNulls
+            connectNulls={false}
           />
 
           <Brush

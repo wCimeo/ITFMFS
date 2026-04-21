@@ -54,7 +54,7 @@ LST-GCN 权重推理与预测结果回写
 
 1. `traffic_flow -> Express -> /api/visual/flowchart -> 前端图表`
 2. `traffic_flow + nodes -> /api/visual/map -> 前端路网地图`
-3. `历史窗口 -> Flask /predict -> predictions -> 前端预测展示`
+3. `历史窗口 -> Flask /predict -> predictions -> 前端按小时聚合展示真实预测结果`
 4. `incidents -> 事件列表/状态更新 -> 地图联动`
 5. `users -> 登录会话 -> 超级管理员设置页`
 
@@ -96,10 +96,10 @@ ADMIN_PASSWORD=Traffic@123456
 ### 4. 交通流量预测
 
 - 已接入 LST-GCN 推理服务
-- 当前后端支持根据权重自动切换 `7 路口 / 10 路口` 预测范围
+- 当前后端支持根据可用权重自动切换 `7 路口 / 10 路口` 预测范围
 - 当前模型输入窗口默认为 `12` 个时间步
 - 当前系统粒度按 `15 分钟` 组织历史数据和预测结果
-- 预测结果会写入 `predictions` 表并在前端展示
+- 预测结果会写入 `predictions` 表，控制台图表按小时聚合这些真实预测结果后再展示
 
 ### 5. 事件管理
 
@@ -151,22 +151,23 @@ ADMIN_PASSWORD=Traffic@123456
 ### 1. 路口范围
 
 - 当前系统地图、事件、路线推荐等模块已扩展到 `10` 个成都路口
-- 其中预测模块支持 `7 路口 / 10 路口` 自动切换
+- 其中预测模块支持 `7 路口 / 10 路口` 自动切换，但实际可用范围取决于仓库中存在的权重文件
 
 ### 2. 模型权重状态
 
 当前 AI 服务逻辑如下：
 
 - 如果存在 `ai_service/lst_gcn_weights_10nodes.pth`，则可启用 `10` 路口预测
-- 如果 `10` 路口权重不存在，则系统自动回退到 `7` 路口预测
+- 如果仓库中同时提供 `ai_service/lst_gcn_weights.pth`，则系统也支持 `7` 路口预测回退
 - 相关元数据可通过 `ai_service/lst_gcn_10nodes_metadata.json` 辅助读取
+- 当前仓库实际已包含 `10` 路口权重，但未包含 `7` 路口权重文件
 
 ### 3. 当前训练与推理相关文件
 
-- `ai_service/thesis.ipynb`：原始训练 notebook
 - `ai_service/thesis_10nodes.ipynb`：按原 notebook 风格扩展的 10 路口版本
-- `ai_service/train_lst_gcn_10nodes.py`：可复用的 10 路口训练脚本
+- `ai_service/app.py`：当前实际使用的 Flask 推理服务
 - `scripts/export_training_csv.py`：从 MySQL 导出训练 CSV
+- 说明：当前仓库未包含 `ai_service/thesis.ipynb` 和 `ai_service/train_lst_gcn_10nodes.py`
 
 ### 4. 当前实时更新方式
 
@@ -276,7 +277,6 @@ python scripts\export_training_csv.py --output ai_service\flow_10nodes.csv --sco
 可在 Colab 中使用：
 
 - `ai_service/thesis_10nodes.ipynb`
-- `ai_service/train_lst_gcn_10nodes.py`
 
 训练完成后，将新的 `lst_gcn_weights_10nodes.pth` 放回 `ai_service/` 目录，即可让系统进入 10 路口真实预测模式。
 
@@ -323,7 +323,7 @@ python scripts\export_training_csv.py --output ai_service\flow_10nodes.csv --sco
 如果你要基于这个 README 做 PPT，建议重点讲以下 5 点：
 
 1. 当前项目已经不再停留在开题方案，而是形成了真实可运行的工程架构。
-2. 系统已经完成从数据库到模型再到前端展示的核心闭环。
+2. 系统已经完成从数据库到模型再到前端按小时聚合展示真实预测结果的核心闭环。
 3. 当前最强的展示点是“登录后进入系统 -> 地图与图表刷新 -> 预测展示 -> 事件联动 -> 报表导出”。
 4. 当前仍保留可继续深入的空间，尤其是公开数据集、10 路口预测和缓存优化。
 5. 论文方向与当前项目是匹配的，适合按“开发类论文 / 工程实现类论文”继续推进。
@@ -341,7 +341,6 @@ python scripts\export_training_csv.py --output ai_service\flow_10nodes.csv --sco
 - `src/components/RoutingView.tsx`：路线推荐
 - `src/components/SettingsView.tsx`：设置与超级管理员信息
 - `ai_service/app.py`：Flask 推理服务
-- `ai_service/thesis.ipynb`：原始训练 notebook
 - `ai_service/thesis_10nodes.ipynb`：10 路口训练 notebook
 - `database/schema.sql`：数据库结构
 - `docs/setup.md`：从零启动说明
