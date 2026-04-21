@@ -97,7 +97,6 @@ export function SettingsView({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-lg font-medium text-gray-900 dark:text-zinc-100">系统设置</h2>
-          <p className="text-sm text-gray-500 dark:text-zinc-400 mt-1">从工程实现角度展示超级管理员资料、会话状态、模型配置和告警接管策略。</p>
         </div>
         <button
           onClick={onLogout}
@@ -188,9 +187,6 @@ export function SettingsView({
               </div>
             ))}
           </div>
-          <p className="mt-4 text-sm text-gray-500 dark:text-zinc-400 leading-7">
-            系统只有超级管理员一种用户类型，因此 user 表不再区分 role 字段。但从工程实现视角，仍保留“数据、模型、信号、会话”四类能力开关，用于说明系统上线后的权限边界与可扩展方向。
-          </p>
         </section>
 
         <section className="p-6 rounded-xl border border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50">

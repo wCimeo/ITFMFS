@@ -121,7 +121,6 @@ export function IncidentsView({
       <div className="flex flex-wrap justify-between items-center gap-4">
         <div>
           <h2 className="text-lg font-medium text-gray-900 dark:text-zinc-100">突发事件与告警</h2>
-          <p className="text-sm text-gray-500 dark:text-zinc-400">事件上报、地图联动和状态更新均已接入真实接口，并限定在 10 个路口范围内。</p>
         </div>
         <button
           onClick={() => setShowForm((prev) => !prev)}

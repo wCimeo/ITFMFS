@@ -47,6 +47,7 @@ interface PredictionRuntime {
 }
 
 let modelInfoCache: { expiresAt: number; variants: AiModelVariantInfo[] } | null = null;
+let predictionScheduler: NodeJS.Timeout | null = null;
 
 interface AdminProfileRow {
   id: number;
@@ -734,7 +735,7 @@ async function runPredictionForLatestWindow(scopeInput: unknown = 'auto') {
   if (timeRows.length < runtime.windowSize) {
     return {
       status: 'error',
-      message: `历史数据不足，至少需要连续 ${runtime.windowSize} 个时间步才能执行 LST-GCN 预测。`,
+      message: `至少需要最近 ${runtime.windowSize} 个时间片才能执行 LST-GCN 预测。`,
       activeScope: runtime.activeScope,
       nodeIds: runtime.nodeIds,
       scopeNote: runtime.scopeNote
@@ -771,7 +772,7 @@ async function runPredictionForLatestWindow(scopeInput: unknown = 'auto') {
   if (!aiResponse.ok) {
     return {
       status: 'error',
-      message: 'Python AI 推理服务未响应，请确认 Flask 服务已经启动。',
+      message: '无法连接 Python AI 推理服务，请检查 Flask 服务是否已启动。',
       activeScope: runtime.activeScope,
       nodeIds: runtime.nodeIds,
       scopeNote: runtime.scopeNote
@@ -782,7 +783,7 @@ async function runPredictionForLatestWindow(scopeInput: unknown = 'auto') {
   if (result.status !== 'success') {
     return {
       status: 'error',
-      message: result.message || '预测执行失败。',
+      message: result.message || '预测服务返回异常。',
       activeScope: runtime.activeScope,
       nodeIds: runtime.nodeIds,
       scopeNote: runtime.scopeNote
@@ -790,6 +791,19 @@ async function runPredictionForLatestWindow(scopeInput: unknown = 'auto') {
   }
 
   const targetTime = new Date(new Date(timestamps[timestamps.length - 1]).getTime() + 15 * 60 * 1000);
+  const simulatorStatus = getTrafficFlowSimulatorStatus();
+  const predictionRetentionMinutes = simulatorStatus.stepMinutes * Math.max(simulatorStatus.retentionSteps, runtime.windowSize);
+  const predictionCutoff = new Date(targetTime.getTime() - predictionRetentionMinutes * 60 * 1000);
+
+  await pool.query(
+    `
+      DELETE FROM predictions
+      WHERE node_id IN (${runtime.nodeIds.map(() => '?').join(',')}) AND target_time = ?
+    `,
+    [...runtime.nodeIds, targetTime]
+  );
+  await pool.query('DELETE FROM predictions WHERE target_time < ?', [predictionCutoff]);
+
   for (const nodeId of runtime.nodeIds) {
     await pool.query(
       `
@@ -802,7 +816,7 @@ async function runPredictionForLatestWindow(scopeInput: unknown = 'auto') {
 
   return {
     status: 'success',
-    message: `已完成 ${runtime.activeScope} 路口窗口的 LST-GCN 预测，并写入 predictions 表。`,
+    message: `已完成 ${runtime.activeScope} 路口范围的 LST-GCN 预测，并写入 predictions 表。`,
     targetTime,
     prediction: result.prediction,
     activeScope: runtime.activeScope,
@@ -810,6 +824,186 @@ async function runPredictionForLatestWindow(scopeInput: unknown = 'auto') {
     modelVersion: runtime.variant,
     scopeNote: runtime.scopeNote
   };
+}
+
+async function triggerPredictionRefresh(reason = 'scheduled') {
+  try {
+    const result = await runPredictionForLatestWindow('auto');
+    if (result.status !== 'success') {
+      console.warn('[prediction-scheduler] ' + reason + ' -> ' + result.message);
+    } else if (reason === 'startup') {
+      console.log(
+        '[prediction-scheduler] initial prediction ready for ' +
+          result.activeScope +
+          ' nodes at ' +
+          result.targetTime.toISOString()
+      );
+    }
+  } catch (error) {
+    console.error('[prediction-scheduler] failed:', error);
+  }
+}
+
+async function startPredictionScheduler() {
+  if (predictionScheduler) {
+    return;
+  }
+
+  await triggerPredictionRefresh('startup');
+  const simulatorStatus = getTrafficFlowSimulatorStatus();
+  const intervalMs = Math.max(simulatorStatus.intervalMs, 60_000);
+  predictionScheduler = setInterval(() => {
+    void triggerPredictionRefresh('interval');
+  }, intervalMs);
+  console.log('[prediction-scheduler] enabled, interval=' + intervalMs + 'ms');
+}
+
+function formatReportDateTime(value: unknown) {
+  if (!value) {
+    return '--';
+  }
+
+  const normalized = value instanceof Date ? value : new Date(String(value));
+  if (Number.isNaN(normalized.getTime())) {
+    return String(value);
+  }
+  return normalized.toLocaleString('zh-CN');
+}
+
+function escapeReportCell(value: unknown) {
+  const normalized = String(value ?? '').replace(/\r?\n/g, ' ').trim();
+  if (normalized.length === 0) {
+    return '';
+  }
+
+  if (/[",\n]/.test(normalized)) {
+    return '"' + normalized.replace(/"/g, '""') + '"';
+  }
+
+  return normalized;
+}
+
+async function buildReportExportData(userId: number, scopeInput: unknown) {
+  const runtime = await resolvePredictionRuntime(scopeInput);
+  const realtime = isDbConnected ? await getRealtimeMetrics() : { flow: 120, speed: 45, occupancy: 0.15, timestamp: null };
+  const profile = await getAdminProfileById(userId);
+  const simulatorStatus = getTrafficFlowSimulatorStatus();
+
+  let predictionRows: any[] = [];
+  if (isDbConnected && runtime.nodeIds.length > 0) {
+    const [rows] = await pool.query<any[]>(
+      `
+        SELECT p.node_id, p.target_time, p.predicted_flow, p.confidence, p.model_version
+        FROM predictions p
+        INNER JOIN (
+          SELECT node_id, MAX(target_time) AS latest_target_time
+          FROM predictions
+          WHERE node_id IN (${runtime.nodeIds.map(() => '?').join(',')})
+          GROUP BY node_id
+        ) latest ON latest.node_id = p.node_id AND latest.latest_target_time = p.target_time
+        ORDER BY p.node_id ASC
+      `,
+      [...runtime.nodeIds]
+    );
+    predictionRows = rows;
+  }
+
+  return {
+    exportedAt: new Date().toISOString(),
+    project: '基于大数据分析的智能交通流量监控与预测系统',
+    realtime,
+    signal: latestSignalStatus,
+    administrator: profile
+      ? {
+          username: profile.username,
+          fullName: profile.full_name,
+          accountType: '超级管理员',
+          lastLoginAt: profile.last_login_at,
+          lastActiveAt: profile.last_active_at,
+          sessionExpiresAt: profile.session_expires_at
+        }
+      : null,
+    activeScope: runtime.activeScope,
+    predictionNodeIds: runtime.nodeIds,
+    scopeNote: runtime.scopeNote,
+    simulatorStatus,
+    predictions: predictionRows
+  };
+}
+
+function buildReportWorkbook(report: any) {
+  const occupancy = (Number(report.realtime.occupancy ?? 0) * 100).toFixed(2) + '%';
+  const rows: unknown[][] = [
+    ['Smart Traffic System Report'],
+    ['Exported At', formatReportDateTime(report.exportedAt)],
+    [],
+    ['1. Overview'],
+    ['Item', 'Value'],
+    ['Project', report.project],
+    ['Prediction Scope', `${report.activeScope} nodes`],
+    ['Nodes Included', report.predictionNodeIds.join(', ')],
+    ['Scope Note', report.scopeNote],
+    [],
+    ['2. Administrator'],
+    ['Field', 'Value'],
+    ['Full Name', report.administrator?.fullName ?? '--'],
+    ['Username', report.administrator?.username ?? '--'],
+    ['Account Type', report.administrator?.accountType ?? 'Super Admin'],
+    ['Last Login', formatReportDateTime(report.administrator?.lastLoginAt)],
+    ['Last Active', formatReportDateTime(report.administrator?.lastActiveAt)],
+    ['Session Expires', formatReportDateTime(report.administrator?.sessionExpiresAt)],
+    [],
+    ['3. Realtime Metrics'],
+    ['Metric', 'Current Value', 'Description'],
+    ['Total Flow', `${report.realtime.flow} veh/hour`, 'Aggregated traffic flow for the latest time slice.'],
+    ['Average Speed', `${report.realtime.speed} km/h`, 'Current network travel efficiency.'],
+    ['Occupancy', occupancy, 'Higher occupancy usually means denser traffic.'],
+    ['Data Timestamp', formatReportDateTime(report.realtime.timestamp), 'Time slice used to generate this report.'],
+    [],
+    ['4. Signal Control & Data Update'],
+    ['Item', 'Current Value', 'Description'],
+    ['Optimized Node', report.signal?.intersection_id ?? '--', 'Intersection currently used by signal optimization.'],
+    ['Recommended Phase', report.signal?.phase ?? '--', 'Preferred signal phase or direction.'],
+    ['Suggested Duration', `${String(report.signal?.duration ?? '--')} s`, 'Recommended hold time for the phase.'],
+    ['Auto Update', report.simulatorStatus.running ? 'Enabled' : 'Disabled', 'Whether the server is appending new testing slices to traffic_flow.'],
+    [
+      'Update Interval',
+      `Every ${Math.round(report.simulatorStatus.intervalMs / 1000)} s, simulating ${report.simulatorStatus.stepMinutes} min`,
+      'Synthetic update cadence for the current demo environment.'
+    ],
+    [],
+    ['5. Latest Predictions'],
+    ['Node', 'Target Time', 'Predicted Flow', 'Confidence', 'Model Version']
+  ];
+
+  if (report.predictions.length > 0) {
+    for (const item of report.predictions) {
+      rows.push([
+        item.node_id,
+        formatReportDateTime(item.target_time),
+        `${item.predicted_flow} veh/hour`,
+        `${(Number(item.confidence ?? 0) * 100).toFixed(1)}%`,
+        item.model_version
+      ]);
+    }
+  } else {
+    rows.push(['--', '--', '--', '--', 'No prediction rows are currently available.']);
+  }
+
+  rows.push(
+    [],
+    ['6. Key Notes'],
+    ['Parameter', 'Description'],
+    ['LST-GCN Model', 'Captures temporal dynamics and road-topology relationships together.'],
+    ['History Window', 'The current inference path uses the latest 12 time slices as input.'],
+    ['Forecast Step', 'Each run predicts one additional time slice at 15-minute granularity.'],
+    ['Scope Note', report.scopeNote],
+    ['Database', 'This report is generated from the traffic_flow and predictions tables in MySQL.'],
+    [],
+    ['Remark', 'This CSV report is suitable for demos, appendix screenshots, and system verification.']
+  );
+
+  return rows.map((row) => row.map((value) => escapeReportCell(value)).join(',')).join('\r\n');
 }
 
 async function getIncidents() {
@@ -896,6 +1090,7 @@ export async function setupRoutes(app: Application) {
   if (isDbConnected) {
     await bootstrapDatabase();
     await startTrafficFlowSimulator();
+    await startPredictionScheduler();
   }
 
   app.post('/api/auth/login', async (req: Request, res: Response) => {
@@ -1059,14 +1254,34 @@ export async function setupRoutes(app: Application) {
 
   app.post('/api/data/clean', async (_req: Request, res: Response) => {
     if (!isDbConnected) {
-      return res.json({ status: 'success', message: '当前为示例模式，无需执行数据清洗。', records_processed: 0 });
+      return res.json({ status: 'success', message: '数据库未连接，暂不需要清洗测试数据。', records_processed: 0 });
     }
 
     const [rows] = await pool.query<any[]>('SELECT COUNT(*) AS total FROM traffic_flow');
     res.json({
       status: 'success',
-      message: '已完成数据质量检查，当前有效流量记录可继续用于展示和预测。',
+      message: '当前为测试阶段，建议使用“清空测试数据”操作重建 traffic_flow 与 predictions 。',
       records_processed: rows[0]?.total ?? 0
+    });
+  });
+
+  app.post('/api/data/reset', async (_req: Request, res: Response) => {
+    if (!isDbConnected) {
+      return res.status(503).json({ status: 'error', message: '数据库未连接，无法清空测试数据。' });
+    }
+
+    const [flowRows] = await pool.query<any[]>('SELECT COUNT(*) AS total FROM traffic_flow');
+    const [predictionRows] = await pool.query<any[]>('SELECT COUNT(*) AS total FROM predictions');
+    await pool.query('DELETE FROM predictions');
+    await pool.query('DELETE FROM traffic_flow');
+
+    res.json({
+      status: 'success',
+      message: '已清空测试阶段的历史流量与预测结果。',
+      cleared: {
+        trafficFlow: flowRows[0]?.total ?? 0,
+        predictions: predictionRows[0]?.total ?? 0
+      }
     });
   });
 
@@ -1278,29 +1493,16 @@ export async function setupRoutes(app: Application) {
   });
 
   app.get('/api/report/export', async (req: AuthenticatedRequest, res: Response) => {
-    const runtime = await resolvePredictionRuntime(req.query.scope);
-    const realtime = isDbConnected ? await getRealtimeMetrics() : { flow: 120, speed: 45, occupancy: 0.15 };
-    const profile = await getAdminProfileById(req.authUser!.id);
+    const report = await buildReportExportData(req.authUser!.id, req.query.scope);
 
-    res.json({
-      exportedAt: new Date().toISOString(),
-      project: '基于大数据分析的智能交通流量监控与预测系统',
-      realtime,
-      signal: latestSignalStatus,
-      administrator: profile
-        ? {
-            username: profile.username,
-            fullName: profile.full_name,
-            accountType: '超级管理员',
-            lastLoginAt: profile.last_login_at,
-            lastActiveAt: profile.last_active_at,
-            sessionExpiresAt: profile.session_expires_at
-          }
-        : null,
-      activeScope: runtime.activeScope,
-      predictionNodeIds: runtime.nodeIds,
-      scopeNote: runtime.scopeNote
-    });
+    if (req.query.format === 'json') {
+      return res.json(report);
+    }
+
+    const fileName = 'traffic-report-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.csv';
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="' + fileName + '"');
+    res.send('\ufeff' + buildReportWorkbook(report));
   });
 
   app.get('/api/pems/status', async (_req: Request, res: Response) => {

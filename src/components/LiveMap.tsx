@@ -59,12 +59,16 @@ export function LiveMap({
   const [loading, setLoading] = useState(true);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
-  const fetchMapData = async (showToast = false) => {
-    setLoading(true);
+  const fetchMapData = async (showToast = false, background = false) => {
+    const shouldBlock = !background || !payload;
+    if (shouldBlock) {
+      setLoading(true);
+    }
+
     try {
       const response = await apiFetch('/api/visual/map');
       if (!response.ok) {
-        throw new Error('地图数据加载失败。');
+        throw new Error('\u8def\u7f51\u5730\u56fe\u52a0\u8f7d\u5931\u8d25\u3002');
       }
       const data = await response.json();
       setPayload({
@@ -80,18 +84,22 @@ export function LiveMap({
         }))
       });
       if (showToast) {
-        onNotify('地图数据已刷新。', 'success');
+        onNotify('\u8def\u7f51\u6570\u636e\u5df2\u5237\u65b0\u3002', 'success');
       }
     } catch (error) {
-      onNotify(error instanceof Error ? error.message : '地图数据加载失败。', 'error');
+      onNotify(error instanceof Error ? error.message : '\u8def\u7f51\u5730\u56fe\u52a0\u8f7d\u5931\u8d25\u3002', 'error');
     } finally {
-      setLoading(false);
+      if (shouldBlock) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    fetchMapData(false);
-    const interval = window.setInterval(() => fetchMapData(false), 60000);
+    void fetchMapData(false);
+    const interval = window.setInterval(() => {
+      void fetchMapData(false, true);
+    }, 60000);
     return () => window.clearInterval(interval);
   }, []);
 
@@ -142,8 +150,10 @@ export function LiveMap({
       <div className="grid grid-cols-1 xl:grid-cols-[1.3fr_0.7fr] gap-6">
         <div className="space-y-4">
           <div>
-            <h2 className="text-lg font-medium text-gray-900 dark:text-zinc-100">实时路网地图</h2>
-            <p className="text-sm text-gray-500 dark:text-zinc-400 mt-1">当前地图底图来自 {payload?.baseMapSource ?? 'OpenStreetMap / CARTO'}，路况点位来自数据库最新时间片或已导入的 PeMS 快照。</p>
+            <h2 className="text-lg font-medium text-gray-900 dark:text-zinc-100">{'\u5b9e\u65f6\u8def\u7f51\u5730\u56fe'}</h2>
+            <p className="mt-2 text-sm text-gray-500 dark:text-zinc-400 leading-6">
+              {payload?.realtimeNote ?? '\u5730\u56fe\u4f1a\u4f18\u5148\u5c55\u793a\u5f53\u524d\u53ef\u7528\u7684\u6700\u65b0\u8def\u7f51\u6570\u636e\u3002'}
+            </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <MetaCard label="当前区域" value={payload?.regionLabel ?? '中国四川成都'} />
@@ -151,13 +161,10 @@ export function LiveMap({
             <MetaCard label="更新模式" value={payload?.updateMode ?? '数据库最新时间戳'} />
             <MetaCard label="当前点位数" value={`${payload?.summary.stationCount ?? 0} 个`} />
           </div>
-          <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300">
-            {payload?.realtimeNote}
-          </div>
         </div>
 
         <div className="rounded-xl border border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 p-5 space-y-4">
-          <div className="text-sm text-gray-500 dark:text-zinc-400">当前手动操作</div>
+          <div className="text-sm text-gray-500 dark:text-zinc-400">{'\u5730\u56fe\u64cd\u4f5c'}</div>
           <select
             value={selectedNodeId ?? ''}
             onChange={(event) => setSelectedNodeId(event.target.value || null)}
@@ -171,7 +178,7 @@ export function LiveMap({
             ))}
           </select>
           <button
-            onClick={() => fetchMapData(true)}
+            onClick={() => void fetchMapData(true)}
             className="w-full px-3 py-2 rounded-lg bg-emerald-500 text-white text-sm hover:bg-emerald-600 transition-colors"
           >
             刷新地图

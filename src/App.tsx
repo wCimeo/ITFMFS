@@ -183,24 +183,39 @@ export default function App() {
   const handleExportReport = async () => {
     setExporting(true);
     try {
-      const response = await apiFetch('/api/report/export');
+      const response = await apiFetch('/api/report/export?format=csv', {
+        headers: { Accept: 'text/csv, application/json' }
+      });
+      const contentType = response.headers.get('content-type') ?? '';
+
       if (!response.ok) {
-        throw new Error('报告导出失败。');
+        if (contentType.includes('application/json')) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(payload?.message || '\u5bfc\u51fa\u62a5\u8868\u5931\u8d25\u3002');
+        }
+        throw new Error('\u5bfc\u51fa\u62a5\u8868\u5931\u8d25\u3002');
       }
 
-      const data = await response.json();
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
+      if (contentType.includes('application/json')) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.message || '\u5bfc\u51fa\u63a5\u53e3\u8fd4\u56de\u4e86 JSON\uff0c\u672a\u751f\u6210\u8868\u683c\u6587\u4ef6\u3002');
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get('content-disposition') ?? '';
+      const match = disposition.match(/filename="?([^";]+)"?/i);
+      const fileName = match?.[1] ?? 'traffic-report.csv';
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `traffic-report-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
+      link.download = fileName;
       document.body.appendChild(link);
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
-      notify('运行报告已导出到本地。', 'success');
+      notify('\u62a5\u8868\u5df2\u5bfc\u51fa\u4e3a Excel \u517c\u5bb9 CSV \u6587\u4ef6\u3002', 'success');
     } catch (error) {
-      notify(error instanceof Error ? error.message : '报告导出失败。', 'error');
+      notify(error instanceof Error ? error.message : '\u5bfc\u51fa\u62a5\u8868\u5931\u8d25\u3002', 'error');
     } finally {
       setExporting(false);
     }
@@ -237,7 +252,6 @@ export default function App() {
             <Activity className="w-6 h-6" />
             智能交通系统
           </h1>
-          <p className="text-xs text-gray-500 dark:text-zinc-500 mt-2 font-mono">工程实现版 / 登录态已启用 / 默认保存 7 天</p>
         </div>
 
         <nav className="flex-1 px-4 space-y-2">
@@ -268,16 +282,14 @@ export default function App() {
         <header className="h-16 border-b border-gray-200 dark:border-zinc-800 flex items-center justify-between px-8 bg-white/80 dark:bg-zinc-900/30 backdrop-blur-sm sticky top-0 z-10 transition-colors duration-300">
           <div className="flex items-center gap-4">
             <h2 className="text-lg font-medium">{TAB_LABELS[activeTab]}</h2>
-            <span className="text-sm text-gray-500 dark:text-zinc-400">欢迎回来，{authUser.full_name}</span>
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-500 dark:text-zinc-400 font-mono">当前模型: LST-GCN v1.2</span>
             <button
               onClick={handleExportReport}
               disabled={exporting}
               className="px-3 py-1.5 bg-gray-100 dark:bg-zinc-800 hover:bg-gray-200 dark:hover:bg-zinc-700 rounded-md text-sm transition-colors disabled:opacity-50"
             >
-              {exporting ? '导出中...' : '导出报告'}
+              {exporting ? '\u5bfc\u51fa\u4e2d...' : '\u5bfc\u51fa\u62a5\u8868'}
             </button>
           </div>
         </header>

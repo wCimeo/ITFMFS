@@ -6,6 +6,8 @@ export interface TrafficSimulatorStatus {
   running: boolean;
   intervalMs: number;
   stepMinutes: number;
+  retentionSteps: number;
+  bootstrapSteps: number;
   lastGeneratedAt: string | null;
   lastDataTimestamp: string | null;
   lastMessage: string;
@@ -19,10 +21,14 @@ interface PreviousNodeSnapshot {
 
 const DEFAULT_INTERVAL_MS = 60_000;
 const DEFAULT_STEP_MINUTES = 15;
+const DEFAULT_RETENTION_STEPS = 288;
+const DEFAULT_BOOTSTRAP_STEPS = 12;
 const STALE_WINDOW_MULTIPLIER = 2;
 
 const intervalMs = normalizePositiveInt(process.env.TRAFFIC_SIMULATOR_INTERVAL_MS, DEFAULT_INTERVAL_MS);
 const stepMinutes = normalizePositiveInt(process.env.TRAFFIC_SIMULATOR_STEP_MINUTES, DEFAULT_STEP_MINUTES);
+const retentionSteps = Math.max(DEFAULT_BOOTSTRAP_STEPS, normalizePositiveInt(process.env.TRAFFIC_SIMULATOR_RETENTION_STEPS, DEFAULT_RETENTION_STEPS));
+const bootstrapSteps = Math.max(DEFAULT_BOOTSTRAP_STEPS, Math.min(retentionSteps, normalizePositiveInt(process.env.TRAFFIC_SIMULATOR_BOOTSTRAP_STEPS, DEFAULT_BOOTSTRAP_STEPS)));
 const enabled = (process.env.ENABLE_TRAFFIC_SIMULATOR ?? 'true').toLowerCase() !== 'false';
 
 let timer: NodeJS.Timeout | null = null;
@@ -33,6 +39,8 @@ const status: TrafficSimulatorStatus = {
   running: false,
   intervalMs,
   stepMinutes,
+  retentionSteps,
+  bootstrapSteps,
   lastGeneratedAt: null,
   lastDataTimestamp: null,
   lastMessage: enabled ? 'Waiting for first auto write.' : 'Auto update disabled.'
@@ -122,16 +130,57 @@ function buildSyntheticRow(nodeIndex: number, timestamp: Date, previous: Previou
   const flow = Math.round(clamp(previousFlow * 0.58 + expectedFlow * 0.42 + noise * 14, 30, 420));
   const speed = Number(clamp(62 - flow * 0.12 + noise * 2.5, 18, 72).toFixed(2));
   const occupancy = Number(clamp(0.07 + flow / 430 + Math.abs(noise) * 0.025, 0.04, 0.95).toFixed(4));
-
   return [intersection.id, timestamp, flow, speed, occupancy] as const;
+}
+
+async function pruneTrafficFlow(latestTimestamp: Date) {
+  const cutoff = addMinutes(latestTimestamp, -stepMinutes * (retentionSteps - 1));
+  await pool.query('DELETE FROM traffic_flow WHERE timestamp < ?', [cutoff]);
+}
+
+function applyRowsToSnapshot(rows: ReadonlyArray<readonly [string, Date, number, number, number]>) {
+  const nextSnapshot = new Map<string, PreviousNodeSnapshot>();
+  for (const row of rows) {
+    nextSnapshot.set(row[0], { flow: row[2], speed: row[3], occupancy: row[4] });
+  }
+  return nextSnapshot;
+}
+
+async function bootstrapInitialHistory() {
+  const latestTimestamp = floorToStep(new Date(), stepMinutes);
+  const firstTimestamp = addMinutes(latestTimestamp, -stepMinutes * (bootstrapSteps - 1));
+  const allRows: Array<readonly [string, Date, number, number, number]> = [];
+  let previousByNode = new Map<string, PreviousNodeSnapshot>();
+
+  for (let index = 0; index < bootstrapSteps; index += 1) {
+    const currentTimestamp = addMinutes(firstTimestamp, stepMinutes * index);
+    const rows = SYSTEM_INTERSECTIONS.map((intersection, nodeIndex) =>
+      buildSyntheticRow(nodeIndex, currentTimestamp, previousByNode.get(intersection.id))
+    );
+    rows.forEach((row) => allRows.push(row));
+    previousByNode = applyRowsToSnapshot(rows);
+  }
+
+  await pool.query('INSERT INTO traffic_flow (node_id, timestamp, flow, speed, occupancy) VALUES ?', [allRows]);
+  await pruneTrafficFlow(latestTimestamp);
+
+  status.lastGeneratedAt = new Date().toISOString();
+  status.lastDataTimestamp = latestTimestamp.toISOString();
+  status.lastMessage = 'Bootstrapped ' + bootstrapSteps + ' time slices for simulator startup.';
 }
 
 async function generateNextSlice() {
   const { lastTime, previousByNode } = await getLatestSnapshot();
+  if (!lastTime) {
+    await bootstrapInitialHistory();
+    return;
+  }
+
   const nextTimestamp = resolveNextTimestamp(lastTime);
   const rows = SYSTEM_INTERSECTIONS.map((intersection, index) => buildSyntheticRow(index, nextTimestamp, previousByNode.get(intersection.id)));
 
   await pool.query('INSERT INTO traffic_flow (node_id, timestamp, flow, speed, occupancy) VALUES ?', [rows]);
+  await pruneTrafficFlow(nextTimestamp);
 
   status.lastGeneratedAt = new Date().toISOString();
   status.lastDataTimestamp = nextTimestamp.toISOString();
@@ -171,7 +220,15 @@ export async function startTrafficFlowSimulator() {
     void runTick();
   }, intervalMs);
   status.running = true;
-  console.log('[traffic-simulator] enabled, interval=' + intervalMs + 'ms, step=' + stepMinutes + 'min');
+  console.log(
+    '[traffic-simulator] started: interval=' +
+      intervalMs +
+      'ms, step=' +
+      stepMinutes +
+      'min, retention=' +
+      retentionSteps +
+      ' steps'
+  );
   return getTrafficFlowSimulatorStatus();
 }
 

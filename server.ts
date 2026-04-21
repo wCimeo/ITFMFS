@@ -22,8 +22,17 @@ async function startServer() {
     app.use(express.static("dist"));
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  const server = app.listen(PORT, "0.0.0.0", () => {
+    console.log(`[server] Listening on http://localhost:${PORT}`);
+  });
+
+  server.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code === "EADDRINUSE") {
+      console.error(`[server] Port ${PORT} is already in use. Close the old dev process and retry.`);
+    } else {
+      console.error("[server] Failed to listen:", error);
+    }
+    process.exit(1);
   });
 }
 

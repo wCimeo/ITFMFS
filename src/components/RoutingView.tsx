@@ -51,7 +51,6 @@ export function RoutingView({
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-lg font-medium text-gray-900 dark:text-zinc-100">智能路线推荐</h2>
-          <p className="text-sm text-gray-500 dark:text-zinc-400">路线规划已改为下拉框选点，限定在当前系统维护的 10 个路口范围内。</p>
         </div>
       </div>
 
@@ -201,7 +200,6 @@ export function RoutingView({
             <div className="h-full min-h-[400px] rounded-xl border border-gray-200 dark:border-zinc-800 border-dashed flex flex-col items-center justify-center text-gray-400 dark:text-zinc-500 bg-gray-50 dark:bg-zinc-900/20 transition-colors duration-300">
               <Navigation className="w-12 h-12 mb-4 opacity-20" />
               <p>请选择起点和终点后计算最优路线。</p>
-              <p className="text-sm mt-2 opacity-60">当前路径推荐已限定在 10 个路口范围内，更适合论文中的系统可验证性展示。</p>
             </div>
           )}
         </div>

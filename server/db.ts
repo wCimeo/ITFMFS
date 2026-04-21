@@ -248,16 +248,16 @@ async function seedIncidents(connection: mysql.PoolConnection) {
 export async function testConnection() {
   try {
     const connection = await pool.getConnection();
-    console.log('✅ 成功连接到 MySQL 数据库');
+    console.log('[db] MySQL connected.');
     connection.release();
     return true;
   } catch (error: any) {
-    console.warn('⚠️ 无法连接到 MySQL 数据库，系统将降级为本地示例模式。');
-    console.warn(`   错误详情: ${error.message}`);
+    console.warn('[db] MySQL unavailable, fallback to local demo mode.');
+    console.warn('[db] Error: ' + error.message);
     if (error.code === 'ER_ACCESS_DENIED_ERROR') {
-      console.warn('   提示: 请检查 .env 中的 DB_PASSWORD 是否正确。');
+      console.warn('[db] Hint: check DB_PASSWORD in .env.');
     } else if (error.code === 'ECONNREFUSED') {
-      console.warn('   提示: 请确认 MySQL 服务已经启动，并监听在正确端口。');
+      console.warn('[db] Hint: ensure MySQL is running and listening on the expected port.');
     }
     return false;
   }
@@ -275,7 +275,7 @@ export async function bootstrapDatabase() {
     await seedDefaultAdmin(connection);
     await seedIncidents(connection);
 
-    console.log('✅ 已完成数据库建表、用户结构修正与默认数据初始化');
+    console.log('[db] Bootstrap completed.');
   } finally {
     connection.release();
   }

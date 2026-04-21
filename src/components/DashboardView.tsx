@@ -54,8 +54,10 @@ export function DashboardView({
   const [loading, setLoading] = useState(true);
   const [optimizing, setOptimizing] = useState(false);
 
-  const fetchDashboard = async (showToast = false, nodeId = selectedNode, date = selectedDate) => {
-    setLoading(true);
+  const fetchDashboard = async (showToast = false, nodeId = selectedNode, date = selectedDate, background = false) => {
+    if (!background) {
+      setLoading(true);
+    }
     try {
       const params = new URLSearchParams({ nodeId });
       if (date) {
@@ -69,7 +71,7 @@ export function DashboardView({
       ]);
 
       if (!metricsRes.ok || !chartRes.ok || !signalRes.ok) {
-        throw new Error('仪表盘数据加载失败，请稍后重试。');
+        throw new Error('\u63a7\u5236\u53f0\u6570\u636e\u52a0\u8f7d\u5931\u8d25\uff0c\u8bf7\u68c0\u67e5\u670d\u52a1\u72b6\u6001\u3002');
       }
 
       const metricsData = await metricsRes.json();
@@ -88,18 +90,27 @@ export function DashboardView({
       }
 
       if (showToast) {
-        onNotify('仪表盘数据已刷新。', 'success');
+        onNotify('\u56fe\u8868\u6570\u636e\u5df2\u5237\u65b0\u3002', 'success');
       }
     } catch (error) {
-      onNotify(error instanceof Error ? error.message : '仪表盘数据加载失败。', 'error');
+      onNotify(error instanceof Error ? error.message : '\u56fe\u8868\u6570\u636e\u52a0\u8f7d\u5931\u8d25\u3002', 'error');
     } finally {
-      setLoading(false);
+      if (!background) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    fetchDashboard(false);
+    void fetchDashboard(false, selectedNode, selectedDate);
   }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      void fetchDashboard(false, selectedNode, selectedDate, true);
+    }, 60000);
+    return () => window.clearInterval(interval);
+  }, [selectedNode, selectedDate]);
 
   const handleOptimizeSignal = async () => {
     setOptimizing(true);
@@ -191,9 +202,6 @@ export function DashboardView({
           ) : (
             <>
               <FlowChart data={chartPayload.data} peaks={chartPayload.peaks} range={chartRange} onRangeChange={setChartRange} />
-              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300">
-                {chartPayload.scopeNote}
-              </div>
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-gray-500 dark:text-zinc-400">
                 <span>当前日期：{chartPayload.date ?? '暂无日期'}</span>
                 <span>当前节点：{chartPayload.nodeId}</span>
@@ -201,7 +209,7 @@ export function DashboardView({
                   最新预测：
                   {chartPayload.latestPrediction
                     ? `${chartPayload.latestPrediction.predicted_flow} 辆/小时`
-                    : '尚未写入 predictions 结果'}
+                    : '\u5c1a\u672a\u751f\u6210\u65b0\u7684\u9884\u6d4b\u7ed3\u679c'}
                 </span>
               </div>
             </>
