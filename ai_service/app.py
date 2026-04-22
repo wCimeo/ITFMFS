@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import os
 import json
 from pathlib import Path
+
+# Windows scientific stacks can load duplicate OpenMP runtimes when NumPy and
+# PyTorch come from different binary builds. Allow the Flask service to start.
+os.environ.setdefault('KMP_DUPLICATE_LIB_OK', 'TRUE')
 
 import numpy as np
 import torch
@@ -30,8 +35,8 @@ TEN_NODE_SPEC = {
         [0, 0, 1, 0, 0, 1, 1, 1, 0, 0],
         [0, 0, 0, 1, 0, 0, 1, 1, 1, 0],
         [0, 0, 0, 0, 1, 0, 0, 1, 1, 1],
-        [0, 0, 0, 0, 0, 1, 0, 0, 1, 1]
-    ]
+        [0, 0, 0, 0, 0, 1, 0, 0, 1, 1],
+    ],
 }
 
 
@@ -58,12 +63,28 @@ class LSTGCN(nn.Module):
     def forward(self, x: torch.Tensor, adj: torch.Tensor):
         batch_size, seq_len, num_nodes = x.shape
         gcn_out = torch.zeros(batch_size, seq_len, num_nodes, self.gcn.weight.shape[1], device=x.device)
-        for t in range(seq_len):
-            gcn_out[:, t, :, :] = self.gcn(x[:, t, :].unsqueeze(-1), adj)
+        for step_index in range(seq_len):
+            gcn_out[:, step_index, :, :] = self.gcn(x[:, step_index, :].unsqueeze(-1), adj)
         lstm_in = gcn_out.view(batch_size, seq_len, -1)
         lstm_out, _ = self.lstm(lstm_in)
         out = self.fc(lstm_out[:, -1, :])
         return out.view(batch_size, num_nodes)
+
+
+def resolve_runtime_device() -> tuple[torch.device, str | None]:
+    if not torch.cuda.is_available():
+        return torch.device('cpu'), None
+
+    try:
+        device = torch.device('cuda')
+        torch.zeros(1, device=device)
+        return device, torch.cuda.get_device_name(0)
+    except Exception as error:
+        print(f"CUDA probe failed, falling back to CPU: {error}")
+        return torch.device('cpu'), None
+
+
+DEVICE, DEVICE_NAME = resolve_runtime_device()
 
 
 def build_normalized_adjacency(adjacency_matrix: list[list[float]]):
@@ -101,10 +122,11 @@ def load_runtime(spec: dict):
         num_nodes=len(spec['node_ids']),
         in_dim=1,
         hidden_dim=int(spec['hidden_dim']),
-        out_dim=1
+        out_dim=1,
     )
-    state_dict = torch.load(weights_path, map_location=torch.device('cpu'))
+    state_dict = torch.load(weights_path, map_location=DEVICE)
     model.load_state_dict(state_dict)
+    model.to(DEVICE)
     model.eval()
 
     return {
@@ -114,8 +136,10 @@ def load_runtime(spec: dict):
         'max_flow': float(spec.get('max_flow', 250.0)),
         'weights_path': str(weights_path),
         'metadata_path': str(spec['metadata_path']) if spec.get('metadata_path') else None,
-        'adjacency_tensor': build_normalized_adjacency(spec['adjacency']),
-        'model': model
+        'adjacency_tensor': build_normalized_adjacency(spec['adjacency']).to(DEVICE),
+        'device': DEVICE.type,
+        'device_name': DEVICE_NAME,
+        'model': model,
     }
 
 
@@ -126,15 +150,19 @@ RUNTIME = load_runtime(with_metadata(TEN_NODE_SPEC))
 def model_info():
     return jsonify({
         'status': 'success',
+        'runtime_device': DEVICE.type,
+        'runtime_device_name': DEVICE_NAME,
         'available_variants': [] if not RUNTIME else [
             {
                 'variant': RUNTIME['variant'],
                 'node_ids': RUNTIME['node_ids'],
                 'window_size': RUNTIME['window_size'],
                 'weights_path': RUNTIME['weights_path'],
-                'metadata_path': RUNTIME['metadata_path']
+                'metadata_path': RUNTIME['metadata_path'],
+                'device': RUNTIME['device'],
+                'device_name': RUNTIME['device_name'],
             }
-        ]
+        ],
     })
 
 
@@ -144,38 +172,47 @@ def predict():
         if not RUNTIME:
             return jsonify({
                 'status': 'error',
-                'message': '未检测到 10 路口权重文件 lst_gcn_weights_10nodes.pth。'
+                'message': 'Missing 10-node weights file: lst_gcn_weights_10nodes.pth',
             }), 500
 
         payload = request.get_json(force=True, silent=False) or {}
         history = payload.get('history')
         if history is None:
-            return jsonify({'status': 'error', 'message': '请求体缺少 history 字段。'}), 400
+            return jsonify({'status': 'error', 'message': 'Request body must include history.'}), 400
 
         history_data = np.array(history, dtype=np.float32)
         if history_data.ndim != 2:
-            return jsonify({'status': 'error', 'message': 'history 必须是二维数组，形如 [时间步][节点]。'}), 400
+            return jsonify({
+                'status': 'error',
+                'message': 'history must be a 2D array shaped like [time][node].',
+            }), 400
 
         seq_len, node_count = history_data.shape
         if node_count != len(RUNTIME['node_ids']):
             return jsonify({
                 'status': 'error',
-                'message': f"当前 AI 服务仅支持 {len(RUNTIME['node_ids'])} 路口输入，收到的是 {node_count} 路口。"
+                'message': (
+                    f"This AI service only accepts {len(RUNTIME['node_ids'])} nodes, "
+                    f"but received {node_count}."
+                ),
             }), 400
 
         if seq_len != RUNTIME['window_size']:
             return jsonify({
                 'status': 'error',
-                'message': f"模型 {RUNTIME['variant']} 需要 {RUNTIME['window_size']} 个历史时间步，收到的是 {seq_len}。"
+                'message': (
+                    f"Model {RUNTIME['variant']} expects {RUNTIME['window_size']} time steps, "
+                    f"but received {seq_len}."
+                ),
             }), 400
 
         history_norm = history_data / RUNTIME['max_flow']
-        input_tensor = torch.FloatTensor(history_norm).unsqueeze(0)
+        input_tensor = torch.FloatTensor(history_norm).unsqueeze(0).to(DEVICE)
 
-        with torch.no_grad():
+        with torch.inference_mode():
             prediction_norm = RUNTIME['model'](input_tensor, RUNTIME['adjacency_tensor'])
 
-        prediction = (prediction_norm.numpy() * RUNTIME['max_flow']).round().astype(int)
+        prediction = (prediction_norm.detach().cpu().numpy() * RUNTIME['max_flow']).round().astype(int)
         result = {
             node_id: int(prediction[0][index])
             for index, node_id in enumerate(RUNTIME['node_ids'])
@@ -185,16 +222,23 @@ def predict():
             'status': 'success',
             'variant': RUNTIME['variant'],
             'node_ids': RUNTIME['node_ids'],
-            'prediction': result
+            'device': RUNTIME['device'],
+            'device_name': RUNTIME['device_name'],
+            'prediction': result,
         })
     except Exception as error:
         return jsonify({'status': 'error', 'message': str(error)}), 500
 
 
 if __name__ == '__main__':
-    print('AI 预测微服务已启动，监听端口 5000...')
+    print('AI prediction service started on http://127.0.0.1:5000')
+    print(f'Runtime device: {DEVICE.type}')
+    if DEVICE_NAME:
+        print(f'Runtime GPU: {DEVICE_NAME}')
+
     if RUNTIME:
-        print(f"- 当前仅启用 10 路口模型: {RUNTIME['weights_path']}")
+        print(f"Active 10-node weights: {RUNTIME['weights_path']}")
     else:
-        print('- 未找到 10 路口权重文件，请先放置 lst_gcn_weights_10nodes.pth')
+        print('10-node weights file not found: lst_gcn_weights_10nodes.pth')
+
     app.run(host='0.0.0.0', port=5000)

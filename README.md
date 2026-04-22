@@ -31,8 +31,8 @@
 - Python：`3.12.12`
 - Flask：`3.1.3`
 - numpy：`2.0.1`
-- pytorch：`2.5.1`
-- pymysql：`1.1.2`
+- pytorch：`2.11.0+cu128`
+- pymysql：`1.4.6`
 - pandas：`3.0.1`
 - matplotlib：`3.10.8`
 
@@ -223,6 +223,8 @@ cd /d D:\Projects\VS_Code\ITFMFS
 npm.cmd install
 npm.cmd run dev
 ```
+
+说明：系统里安装了 Node.js 只表示 `node` / `npm` 可用，项目自己的前端依赖仍然需要在仓库根目录执行一次 `npm.cmd install`，这样才会生成本地 `node_modules/`。
 
 ### 4. 浏览器访问
 

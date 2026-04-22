@@ -16,8 +16,8 @@
   - Python 3.12.12
   - Flask 3.1.3
   - numpy 2.0.1
-  - pytorch 2.5.1
-  - pymysql 1.1.2
+  - pytorch 2.11.0+cu128
+  - pymysql 1.4.6
   - pandas 3.0.1
   - matplotlib 3.10.8
 
@@ -67,13 +67,16 @@ cd /d D:\Projects\VS_Code\ITFMFS
 npm.cmd install
 ```
 
+说明：即使已经把 Node.js 配到系统环境变量里，项目依赖也不会自动出现在仓库里；只有在项目根目录执行 `npm.cmd install` 之后，`node_modules/` 才会创建出来。
+
 ### 2. Python 依赖
 
 如果你已经有 `thesis` 环境，直接激活即可：
 
 ```powershell
 conda activate thesis
-pip install flask==3.1.3 numpy==2.0.1 torch==2.5.1 pymysql==1.1.2 pandas==3.0.1 matplotlib==3.10.8
+pip install flask==3.1.3 numpy==2.0.1 pymysql==1.4.6 pandas==3.0.1 matplotlib==3.10.8
+python -m pip install --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 ```
 
 如果需要新建环境：
@@ -81,7 +84,16 @@ pip install flask==3.1.3 numpy==2.0.1 torch==2.5.1 pymysql==1.1.2 pandas==3.0.1 
 ```powershell
 conda create -n thesis python=3.12.12 -y
 conda activate thesis
-pip install flask==3.1.3 numpy==2.0.1 torch==2.5.1 pymysql==1.1.2 pandas==3.0.1 matplotlib==3.10.8
+pip install flask==3.1.3 numpy==2.0.1 pymysql==1.4.6 pandas==3.0.1 matplotlib==3.10.8
+python -m pip install --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+```
+
+说明：这台 `RTX 5060 Laptop GPU` 需要使用官方 `cu128` 或更新的 PyTorch Windows 轮子。旧的 `torch 2.5.1 + cu124` 虽然能识别显卡，但实际执行 CUDA 张量运算会报 `no kernel image is available for execution on the device`。
+
+建议安装完成后验证一次：
+
+```powershell
+conda run -n thesis python -c "import torch; print(torch.__version__); print(torch.version.cuda); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
 ```
 
 ## 五、启动项目
@@ -205,7 +217,8 @@ DB_PASSWORD=你的密码
 请确认已经激活正确环境，并执行：
 
 ```powershell
-pip install flask==3.1.3 numpy==2.0.1 torch==2.5.1 pymysql==1.1.2 pandas==3.0.1 matplotlib==3.10.8
+pip install flask==3.1.3 numpy==2.0.1 pymysql==1.4.6 pandas==3.0.1 matplotlib==3.10.8
+python -m pip install --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 ```
 
 ### 5. 端口被占用
