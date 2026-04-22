@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import argparse
-import os
-from pathlib import Path
 
 import pymysql
 import pymysql.cursors
-from dotenv import load_dotenv
 
-load_dotenv()
+from script_utils import get_db_config, resolve_project_path
 
 SYSTEM_NODE_IDS = ['A1', 'B2', 'C3', 'D4', 'E5', 'F6', 'G7', 'H8', 'I9', 'J10']
 
@@ -23,18 +20,14 @@ def parse_args():
 
 def get_connection():
     return pymysql.connect(
-        host=os.getenv('DB_HOST', 'localhost'),
-        user=os.getenv('DB_USER', 'root'),
-        password=os.getenv('DB_PASSWORD', '123456'),
-        database=os.getenv('DB_NAME', 'traffic_system'),
-        charset='utf8mb4',
+        **get_db_config(),
         cursorclass=pymysql.cursors.DictCursor
     )
 
 
 def main():
     args = parse_args()
-    output_path = Path(args.output)
+    output_path = resolve_project_path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     placeholders = ','.join(['%s'] * len(SYSTEM_NODE_IDS))

@@ -1,16 +1,12 @@
-﻿import math
+import math
 import random
 from datetime import datetime, timedelta
 
 import pymysql
 
-DB_CONFIG = {
-    'host': 'localhost',
-    'user': 'root',
-    'password': '123456',
-    'database': 'traffic_system',
-    'charset': 'utf8mb4'
-}
+from script_utils import get_db_config
+
+DB_CONFIG = get_db_config()
 
 NODES = [
     {'id': 'A1', 'name': '成都天府大道-锦城大道路口', 'lat': 30.5702, 'lng': 104.0743},
@@ -25,12 +21,23 @@ NODES = [
     {'id': 'J10', 'name': '成都成都东站西广场-邛崃山路路口', 'lat': 30.6188, 'lng': 104.1215}
 ]
 
-MODEL_NODES = {'A1', 'B2', 'C3', 'D4', 'E5', 'F6', 'G7'}
+NODE_FLOW_BIAS = {
+    'A1': 24,
+    'B2': 18,
+    'C3': 20,
+    'D4': 16,
+    'E5': 14,
+    'F6': 12,
+    'G7': 10,
+    'H8': 15,
+    'I9': 17,
+    'J10': 13
+}
 
 
 def generate_flow_for_time(dt, node_id):
     hour = dt.hour + dt.minute / 60.0
-    base_flow = 105 if node_id in MODEL_NODES else 80
+    base_flow = 82 + NODE_FLOW_BIAS.get(node_id, 0)
 
     morning_peak = 150 * math.exp(-0.5 * ((hour - 8.0) / 1.4) ** 2)
     midday_peak = 60 * math.exp(-0.5 * ((hour - 13.0) / 1.7) ** 2)
@@ -108,7 +115,7 @@ def main():
             connection.commit()
 
         print('模拟数据生成完成。')
-        print('注意: 当前 LST-GCN 权重仍只覆盖 A1-G7，若要预测 H8-J10，需要重新训练并替换权重文件。')
+        print('当前脚本已按 10 个成都路口统一生成，可直接用于地图、图表和 10 路口训练数据准备。')
     except Exception as error:
         connection.rollback()
         print(f'执行过程中发生错误: {error}')

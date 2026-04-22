@@ -20,13 +20,14 @@
 
 ```powershell
 conda activate thesis
-pip install pandas==3.0.1 pymysql==1.1.2
+pip install pandas==3.0.1 pymysql==1.4.6
 ```
 
 并确保：
 
 1. MySQL 已启动
 2. `traffic_system` 数据库已存在
+3. 项目根目录 `.env` 中的 `DB_*` 配置已填写正确，导入脚本会自动读取
 
 ## 四、导入命令
 

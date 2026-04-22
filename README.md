@@ -166,6 +166,7 @@ ADMIN_PASSWORD=Traffic@123456
 - `ai_service/thesis_10nodes.ipynb`：按原 notebook 风格扩展的 10 路口版本
 - `ai_service/app.py`：当前实际使用的 Flask 推理服务
 - `scripts/export_training_csv.py`：从 MySQL 导出训练 CSV
+- `scripts/script_utils.py`：脚本共享的 `.env` 和项目根路径读取逻辑
 - 说明：当前仓库只保留 10 路口训练与推理相关文件
 
 ### 4. 当前实时更新方式
@@ -183,12 +184,19 @@ ITFMFS/
 ├─ database/                 # 数据库结构脚本
 ├─ docs/                     # 启动说明、PeMS 导入说明等文档
 ├─ scripts/                  # 数据生成、PeMS 导入、训练数据导出脚本
+│  ├─ script_utils.py        # 脚本共享的 .env / 路径读取工具
+│  ├─ generate_mock_data.py
+│  ├─ import_pems_data.py
+│  └─ export_training_csv.py
 ├─ server/                   # Express 路由、数据库连接、模拟器逻辑
 ├─ src/                      # React 前端
+├─ .env.example              # 环境变量模板
 ├─ server.ts                 # 服务启动入口
 ├─ package.json
 └─ README.md
 ```
+
+说明：`node_modules/`、`dist/`、`.npm-cache/` 等本地生成目录不纳入仓库目录说明，也不应提交到版本库。
 
 ## 八、快速启动
 
@@ -235,6 +243,8 @@ http://localhost:3000
 ## 九、当前可直接进行的操作
 
 这一部分适合后续你继续开发、写论文或做展示时直接使用。
+
+补充说明：`scripts/` 下的 Python 脚本现在会统一读取项目根目录 `.env` 中的 `DB_HOST / DB_USER / DB_PASSWORD / DB_NAME` 配置，不再各自写死数据库连接信息。
 
 ### 1. 启动系统并演示当前版本
 

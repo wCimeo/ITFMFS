@@ -4,14 +4,9 @@ from pathlib import Path
 import pandas as pd
 import pymysql
 
+from script_utils import get_db_config
 
-DB_CONFIG = {
-    "host": "localhost",
-    "user": "root",
-    "password": "123456",
-    "database": "traffic_system",
-    "charset": "utf8mb4",
-}
+DB_CONFIG = get_db_config()
 
 STATION_CANDIDATES = {
     "id": ["station_id", "station", "id", "vds", "stationid"],
@@ -235,6 +230,10 @@ def import_traffic(connection, args):
 
 def main():
     args = parse_args()
+    if args.stations and not args.stations.exists():
+        raise FileNotFoundError(f"Station metadata file was not found: {args.stations}")
+    if not args.traffic.exists():
+        raise FileNotFoundError(f"Traffic flow file was not found: {args.traffic}")
 
     print("Connecting to MySQL...")
     connection = pymysql.connect(**DB_CONFIG)

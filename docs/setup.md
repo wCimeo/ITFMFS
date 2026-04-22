@@ -44,7 +44,7 @@ mysql -u root -p traffic_system < "D:\Projects\VS_Code\ITFMFS\database\schema.sq
 
 ## 三、配置 `.env`
 
-在项目根目录创建 `.env` 文件：
+推荐直接从 `.env.example` 复制一份为 `.env`，再按本机环境调整：
 
 ```env
 DB_HOST=localhost
@@ -57,6 +57,7 @@ DB_NAME=traffic_system
 
 - `DB_PASSWORD` 请替换为你本机实际 MySQL 密码
 - `.env.example` 可作为参考模板
+- `scripts/` 下的 Python 脚本会自动读取这个 `.env`
 
 ## 四、安装依赖
 
@@ -67,7 +68,7 @@ cd /d D:\Projects\VS_Code\ITFMFS
 npm.cmd install
 ```
 
-说明：即使已经把 Node.js 配到系统环境变量里，项目依赖也不会自动出现在仓库里；只有在项目根目录执行 `npm.cmd install` 之后，`node_modules/` 才会创建出来。
+说明：即使已经把 Node.js 配到系统环境变量里，项目依赖也不会自动出现在仓库里；只有在项目根目录执行 `npm.cmd install` 之后，`node_modules/` 才会创建出来。`node_modules/` 和后续构建生成的 `dist/` 都属于本地生成目录，不会保留在仓库目录说明里。
 
 ### 2. Python 依赖
 
@@ -137,7 +138,7 @@ cd /d D:\Projects\VS_Code\ITFMFS
 python scripts\generate_mock_data.py
 ```
 
-该脚本会向 `nodes` 和 `traffic_flow` 表写入测试数据。
+该脚本会向 `nodes` 和 `traffic_flow` 表写入测试数据，并自动读取项目根目录 `.env` 中的数据库配置。
 
 ## 七、常用命令
 

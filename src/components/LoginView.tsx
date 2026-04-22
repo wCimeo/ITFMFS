@@ -33,7 +33,7 @@ export function LoginView({
 
           <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
             <InfoCard title="会话时长" description="登录成功后默认保留 7 天。在会话有效期内重新打开系统无需再次登录。" />
-            <InfoCard title="系统范围" description="路网管理已扩展到 10 个路口，当前 LST-GCN 权重仍覆盖 A1-G7。" />
+            <InfoCard title="系统范围" description="路网管理和 LST-GCN 预测都已统一到 10 个成都路口，当前模型范围覆盖 A1-J10。" />
             <InfoCard title="地图来源" description="地图底图来自 OpenStreetMap / CARTO，路口数据来自 MySQL 或已导入的 PeMS 数据。" />
             <InfoCard title="默认账号" description="用户名默认为 admin_traffic，密码可通过 .env 中的 ADMIN_PASSWORD 覆盖。" />
           </div>
