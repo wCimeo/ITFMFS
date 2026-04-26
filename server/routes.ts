@@ -7,6 +7,7 @@ import {
   verifyPassword
 } from './auth.ts';
 import { bootstrapDatabase, pool, testConnection } from './db.ts';
+import { getPemsSyncStatus, isPemsSyncEnabled, startPemsSync } from './pemsSync.ts';
 import { getTrafficFlowSimulatorStatus, startTrafficFlowSimulator } from './trafficSimulator.ts';
 import {
   PREDICTION_NODE_IDS,
@@ -26,6 +27,7 @@ const MODEL_SCOPE_NOTE =
   '当前系统仅保留 10 路口预测，A1-J10 都会参与 LST-GCN 推理与结果展示。';
 const AI_SERVICE_BASE_URL = 'http://127.0.0.1:5000';
 const MODEL_INFO_CACHE_TTL_MS = 30 * 1000;
+const DEFAULT_SYSTEM_STEP_MINUTES = 15;
 
 interface AiModelVariantInfo {
   variant: string;
@@ -113,6 +115,47 @@ function toDateKey(value: unknown) {
     return null;
   }
   return value;
+}
+
+function toLocalDateKey(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function toDateKeyFromUnknown(value: unknown) {
+  if (typeof value === 'string') {
+    return toDateKey(value);
+  }
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return toLocalDateKey(value);
+  }
+
+  return null;
+}
+
+function normalizePositiveInt(value: string | undefined, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : fallback;
+}
+
+function getSystemStepMinutes() {
+  return normalizePositiveInt(
+    process.env.PEMS_SYNC_STEP_MINUTES ?? process.env.TRAFFIC_SIMULATOR_STEP_MINUTES,
+    DEFAULT_SYSTEM_STEP_MINUTES
+  );
+}
+
+function endOfSelectedDate(dateKey: string) {
+  const now = new Date();
+  if (dateKey === toLocalDateKey(now)) {
+    return now;
+  }
+
+  const end = new Date(`${dateKey}T23:59:59`);
+  return Number.isNaN(end.getTime()) ? now : end;
 }
 
 function asNumber(value: unknown, fallback = 0) {
@@ -440,7 +483,7 @@ async function updateAdminSettings(userId: number, body: any) {
 }
 
 async function getRealtimeMetrics() {
-  const [timeRows] = await pool.query<any[]>('SELECT MAX(timestamp) AS last_time FROM traffic_flow');
+  const [timeRows] = await pool.query<any[]>('SELECT MAX(timestamp) AS last_time FROM traffic_flow WHERE timestamp <= ?', [new Date()]);
   const lastTime = timeRows[0]?.last_time;
   if (!lastTime) {
     return { timestamp: null, flow: 0, speed: 0, occupancy: 0 };
@@ -470,9 +513,9 @@ async function getRealtimeMetrics() {
 async function getLocalMapSnapshot() {
   const simulatorStatus = getTrafficFlowSimulatorStatus();
   const simulatorUpdateMode = simulatorStatus.running
-    ? '\u81ea\u52a8\u6a21\u62df\u66f4\u65b0\uff08\u6bcf ' + Math.round(simulatorStatus.intervalMs / 1000) + ' \u79d2\u63a8\u8fdb ' + simulatorStatus.stepMinutes + ' \u5206\u949f\uff09'
+    ? '\u81ea\u52a8\u6a21\u62df\u66f4\u65b0\uff08\u6bcf ' + Math.round(simulatorStatus.intervalMs / 1000) + ' \u79d2\u5bf9\u9f50\u4e00\u6b21\u771f\u5b9e\u65f6\u95f4\u7a97\u53e3\uff09'
     : '\u6570\u636e\u5e93\u6700\u65b0\u65f6\u95f4\u6233';
-  const [timeRows] = await pool.query<any[]>('SELECT MAX(timestamp) AS last_time FROM traffic_flow');
+  const [timeRows] = await pool.query<any[]>('SELECT MAX(timestamp) AS last_time FROM traffic_flow WHERE timestamp <= ?', [new Date()]);
   const lastTime = timeRows[0]?.last_time;
 
   if (!lastTime) {
@@ -482,7 +525,7 @@ async function getLocalMapSnapshot() {
       baseMapSource: 'OpenStreetMap / CARTO',
       updateMode: simulatorStatus.running ? simulatorUpdateMode : '\u5185\u7f6e\u793a\u4f8b\u8def\u7f51',
       realtimeNote: simulatorStatus.running
-        ? '\u5f53\u524d\u5f00\u53d1\u73af\u5883\u5df2\u5f00\u542f traffic_flow \u81ea\u52a8\u6a21\u62df\u66f4\u65b0\uff0c\u7cfb\u7edf\u4f1a\u6309\u56fa\u5b9a\u95f4\u9694\u81ea\u52a8\u5199\u5165\u65b0\u7684\u65f6\u95f4\u7247\uff0c\u5730\u56fe\u4f1a\u968f\u6570\u636e\u5e93\u6700\u65b0\u8bb0\u5f55\u6301\u7eed\u5237\u65b0\u3002'
+        ? '\u5f53\u524d\u5f00\u53d1\u73af\u5883\u5df2\u5f00\u542f traffic_flow \u81ea\u52a8\u66f4\u65b0\uff0c\u4f46\u65f6\u95f4\u6233\u4f1a\u59cb\u7ec8\u5bf9\u9f50\u5230\u771f\u5b9e\u5f53\u524d\u65f6\u95f4\u7a97\u53e3\uff0c\u4e0d\u518d\u5411\u672a\u6765\u63a8\u8fdb\u865a\u62df\u65f6\u95f4\u6b65\u3002'
         : '\u5f53\u524d\u5c55\u793a\u7684\u662f\u6210\u90fd 10 \u4e2a\u8def\u53e3\u7684\u672c\u5730\u793a\u4f8b\u8def\u7f51\u3002\u63a5\u5165\u6301\u7eed\u5165\u5e93\u7684\u6570\u636e\u540e\uff0c\u5730\u56fe\u4f1a\u81ea\u52a8\u6309\u6570\u636e\u5e93\u6700\u65b0\u65f6\u95f4\u6233\u5237\u65b0\u3002',
       lastUpdated: null,
       nodes: fallbackMapNodes,
@@ -528,7 +571,7 @@ async function getLocalMapSnapshot() {
     baseMapSource: 'OpenStreetMap / CARTO',
     updateMode: simulatorUpdateMode,
     realtimeNote: simulatorStatus.running
-      ? '\u5730\u56fe\u5f53\u524d\u8bfb\u53d6\u7684\u662f traffic_flow \u8868\u81ea\u52a8\u8ffd\u52a0\u540e\u7684\u6700\u65b0\u65f6\u95f4\u7247\u3002\u4f60\u4fdd\u6301\u9875\u9762\u6253\u5f00\u5373\u53ef\u770b\u5230\u6210\u90fd 10 \u4e2a\u8def\u53e3\u7684\u6d41\u91cf\u3001\u8f66\u901f\u548c\u5360\u6709\u7387\u6301\u7eed\u53d8\u5316\u3002'
+      ? '\u5730\u56fe\u5f53\u524d\u8bfb\u53d6\u7684\u662f traffic_flow \u8868\u4e2d\u5bf9\u9f50\u5230\u771f\u5b9e\u65f6\u95f4\u7a97\u53e3\u7684\u6700\u65b0\u65f6\u95f4\u7247\u3002\u4f60\u4fdd\u6301\u9875\u9762\u6253\u5f00\u5373\u53ef\u770b\u5230\u6210\u90fd 10 \u4e2a\u8def\u53e3\u7684\u6d41\u91cf\u3001\u8f66\u901f\u548c\u5360\u6709\u7387\u5728\u771f\u5b9e\u65f6\u95f4\u7ebf\u4e0a\u6301\u7eed\u5237\u65b0\u3002'
       : '\u5730\u56fe\u4f1a\u8bfb\u53d6 MySQL \u4e2d traffic_flow \u8868\u7684\u6700\u65b0\u65f6\u95f4\u7247\u3002\u67d0\u4e2a\u8def\u53e3\u82e5\u6ca1\u6709\u5f53\u524d\u65f6\u523b\u6570\u636e\uff0c\u4f1a\u4fdd\u7559\u5728\u5730\u56fe\u4e0a\u5e76\u663e\u793a\u4e3a\u6682\u65e0\u5b9e\u65f6\u6d41\u91cf\u3002',
     lastUpdated: lastTime,
     nodes,
@@ -603,13 +646,13 @@ async function getChartPayload(
     `
       SELECT DATE(MAX(timestamp)) AS latest_date
       FROM traffic_flow
-      WHERE node_id = ?
+      WHERE node_id = ? AND timestamp <= ?
     `,
-    [nodeId]
+    [nodeId, new Date()]
   );
 
   const latestDate = latestRows[0]?.latest_date;
-  const selectedDate = dateInput ?? (latestDate ? new Date(latestDate).toISOString().slice(0, 10) : null);
+  const selectedDate = dateInput ?? toDateKeyFromUnknown(latestDate);
 
   if (!selectedDate) {
     return {
@@ -624,15 +667,17 @@ async function getChartPayload(
     };
   }
 
+  const selectedDateEnd = endOfSelectedDate(selectedDate);
+
   const [historicalRows] = await pool.query<any[]>(
     `
       SELECT HOUR(timestamp) AS hour_slot, AVG(flow) AS avg_flow
       FROM traffic_flow
-      WHERE node_id = ? AND DATE(timestamp) = ?
+      WHERE node_id = ? AND DATE(timestamp) = ? AND timestamp <= ?
       GROUP BY HOUR(timestamp)
       ORDER BY HOUR(timestamp)
     `,
-    [nodeId, selectedDate]
+    [nodeId, selectedDate, selectedDateEnd]
   );
 
   const [predictionHourlyRows] = await pool.query<any[]>(
@@ -687,18 +732,34 @@ async function getChartPayload(
   };
 }
 
+async function getPredictionScheduleConfig() {
+  const stepMinutes = getSystemStepMinutes();
+  const [rows] = await pool.query<any[]>('SELECT prediction_horizon_minutes FROM users ORDER BY id ASC LIMIT 1');
+  const rawHorizon = Number(rows[0]?.prediction_horizon_minutes ?? stepMinutes);
+  const horizonMinutes = [15, 30, 60].includes(rawHorizon) ? rawHorizon : stepMinutes;
+
+  return {
+    stepMinutes,
+    horizonMinutes,
+    stepsAhead: Math.max(1, Math.ceil(horizonMinutes / stepMinutes))
+  };
+}
+
 async function runPredictionForLatestWindow(scopeInput: unknown = 'auto') {
   const runtime = await resolvePredictionRuntime(scopeInput, true);
+  const predictionConfig = await getPredictionScheduleConfig();
+  const now = new Date();
 
   const [timeRows] = await pool.query<any[]>(
     `
       SELECT DISTINCT timestamp
       FROM traffic_flow
       WHERE node_id IN (${runtime.nodeIds.map(() => '?').join(',')})
+        AND timestamp <= ?
       ORDER BY timestamp DESC
       LIMIT ?
     `,
-    [...runtime.nodeIds, runtime.windowSize]
+    [...runtime.nodeIds, now, runtime.windowSize]
   );
 
   if (timeRows.length < runtime.windowSize) {
@@ -712,6 +773,7 @@ async function runPredictionForLatestWindow(scopeInput: unknown = 'auto') {
   }
 
   const timestamps = timeRows.map((row) => row.timestamp).reverse();
+  const baseTime = new Date(timestamps[timestamps.length - 1]);
   const [flowRows] = await pool.query<any[]>(
     `
       SELECT node_id, timestamp, flow
@@ -723,19 +785,18 @@ async function runPredictionForLatestWindow(scopeInput: unknown = 'auto') {
     [...runtime.nodeIds, timestamps[0], timestamps[timestamps.length - 1]]
   );
 
-  const history = timestamps.map((timestamp) =>
-    runtime.nodeIds.map((nodeId) => {
-      const record = flowRows.find(
-        (row) => row.node_id === nodeId && new Date(row.timestamp).getTime() === new Date(timestamp).getTime()
-      );
-      return record ? asNumber(record.flow) : 0;
-    })
+  const flowByKey = new Map(
+    flowRows.map((row) => [`${row.node_id}|${new Date(row.timestamp).getTime()}`, asNumber(row.flow)])
   );
+  const history = timestamps.map((timestamp) => {
+    const timestampMs = new Date(timestamp).getTime();
+    return runtime.nodeIds.map((nodeId) => flowByKey.get(`${nodeId}|${timestampMs}`) ?? 0);
+  });
 
   const aiResponse = await fetch(`${AI_SERVICE_BASE_URL}/predict`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ history })
+    body: JSON.stringify({ history, steps: predictionConfig.stepsAhead })
   });
 
   if (!aiResponse.ok) {
@@ -759,35 +820,64 @@ async function runPredictionForLatestWindow(scopeInput: unknown = 'auto') {
     };
   }
 
-  const targetTime = new Date(new Date(timestamps[timestamps.length - 1]).getTime() + 15 * 60 * 1000);
+  const predictionSteps = Array.isArray(result.prediction_steps) && result.prediction_steps.length > 0
+    ? result.prediction_steps
+    : [{ step: 1, prediction: result.prediction ?? {} }];
+  const targetTimeline = predictionSteps.map((stepResult: any, index: number) => {
+    const stepNumber = Math.max(1, Number(stepResult?.step ?? index + 1));
+    return {
+      step: stepNumber,
+      targetTime: new Date(baseTime.getTime() + stepNumber * predictionConfig.stepMinutes * 60 * 1000),
+      prediction: stepResult?.prediction ?? {}
+    };
+  });
+  const targetTime =
+    targetTimeline[targetTimeline.length - 1]?.targetTime ??
+    new Date(baseTime.getTime() + predictionConfig.stepMinutes * 60 * 1000);
   const simulatorStatus = getTrafficFlowSimulatorStatus();
-  const predictionRetentionMinutes = simulatorStatus.stepMinutes * Math.max(simulatorStatus.retentionSteps, runtime.windowSize);
+  const predictionRetentionMinutes = predictionConfig.stepMinutes * Math.max(simulatorStatus.retentionSteps, runtime.windowSize * 8);
   const predictionCutoff = new Date(targetTime.getTime() - predictionRetentionMinutes * 60 * 1000);
 
   await pool.query(
     `
       DELETE FROM predictions
-      WHERE node_id IN (${runtime.nodeIds.map(() => '?').join(',')}) AND target_time = ?
+      WHERE node_id IN (${runtime.nodeIds.map(() => '?').join(',')}) AND target_time >= ?
     `,
-    [...runtime.nodeIds, targetTime]
+    [...runtime.nodeIds, baseTime]
   );
   await pool.query('DELETE FROM predictions WHERE target_time < ?', [predictionCutoff]);
 
-  for (const nodeId of runtime.nodeIds) {
+  const insertRows: Array<[string, Date, number, number, string]> = [];
+  for (const timelineItem of targetTimeline) {
+    for (const nodeId of runtime.nodeIds) {
+      insertRows.push([
+        nodeId,
+        timelineItem.targetTime,
+        asNumber(timelineItem.prediction?.[nodeId]),
+        0.85,
+        runtime.variant
+      ]);
+    }
+  }
+
+  if (insertRows.length > 0) {
     await pool.query(
       `
         INSERT INTO predictions (node_id, target_time, predicted_flow, confidence, model_version)
-        VALUES (?, ?, ?, ?, ?)
+        VALUES ?
       `,
-      [nodeId, targetTime, asNumber(result.prediction?.[nodeId]), 0.85, runtime.variant]
+      [insertRows]
     );
   }
 
   return {
     status: 'success',
     message: `已完成 ${runtime.activeScope} 路口范围的 LST-GCN 预测，并写入 predictions 表。`,
+    baseTime,
     targetTime,
-    prediction: result.prediction,
+    prediction: targetTimeline[targetTimeline.length - 1]?.prediction ?? result.prediction,
+    predictionTimeline: targetTimeline,
+    horizonMinutes: predictionConfig.horizonMinutes,
     activeScope: runtime.activeScope,
     nodeIds: runtime.nodeIds,
     modelVersion: runtime.variant,
@@ -820,7 +910,8 @@ async function startPredictionScheduler() {
 
   await triggerPredictionRefresh('startup');
   const simulatorStatus = getTrafficFlowSimulatorStatus();
-  const intervalMs = Math.max(simulatorStatus.intervalMs, 60_000);
+  const pemsSyncStatus = getPemsSyncStatus();
+  const intervalMs = Math.max(simulatorStatus.intervalMs, pemsSyncStatus.enabled ? pemsSyncStatus.intervalMs : 0, 60_000);
   predictionScheduler = setInterval(() => {
     void triggerPredictionRefresh('interval');
   }, intervalMs);
@@ -1033,10 +1124,11 @@ async function optimizeSignal() {
     `
       SELECT node_id, flow
       FROM traffic_flow
-      WHERE timestamp = (SELECT MAX(timestamp) FROM traffic_flow)
+      WHERE timestamp = (SELECT MAX(timestamp) FROM traffic_flow WHERE timestamp <= ?)
       ORDER BY flow DESC
       LIMIT 1
-    `
+    `,
+    [new Date()]
   );
 
   const busiest = rows[0] ?? { node_id: PREDICTION_NODE_IDS[0], flow: 120 };
@@ -1058,7 +1150,10 @@ export async function setupRoutes(app: Application) {
 
   if (isDbConnected) {
     await bootstrapDatabase();
-    await startTrafficFlowSimulator();
+    await startPemsSync();
+    if (!isPemsSyncEnabled()) {
+      await startTrafficFlowSimulator();
+    }
     await startPredictionScheduler();
   }
 
@@ -1193,17 +1288,18 @@ export async function setupRoutes(app: Application) {
     }
 
     const nodeId = normalizeSystemNodeId(req.query.nodeId);
-    const date = toDateKey(req.query.date) ?? new Date().toISOString().slice(0, 10);
+    const date = toDateKey(req.query.date) ?? toLocalDateKey(new Date());
 
     try {
+      const dateEnd = endOfSelectedDate(date);
       const [rows] = await pool.query<any[]>(
         `
           SELECT timestamp, flow, speed, occupancy
           FROM traffic_flow
-          WHERE node_id = ? AND DATE(timestamp) = ?
+          WHERE node_id = ? AND DATE(timestamp) = ? AND timestamp <= ?
           ORDER BY timestamp ASC
         `,
-        [nodeId, date]
+        [nodeId, date, dateEnd]
       );
 
       res.json(rows);
@@ -1480,6 +1576,7 @@ export async function setupRoutes(app: Application) {
 
     const [stationRows] = await pool.query<any[]>('SELECT COUNT(*) AS total FROM pems_stations');
     const [flowRows] = await pool.query<any[]>('SELECT COUNT(*) AS total FROM pems_traffic_flow');
+    const syncStatus = getPemsSyncStatus();
 
     res.json({
       available: (stationRows[0]?.total ?? 0) > 0 && (flowRows[0]?.total ?? 0) > 0,
@@ -1487,8 +1584,9 @@ export async function setupRoutes(app: Application) {
       records: flowRows[0]?.total ?? 0,
       importGuide: '请参考 docs/pems_import.md 下载并导入 PeMS 官方数据文件。',
       officialSite: 'https://pems.dot.ca.gov/',
-      updateMode: 'manual_import_snapshot'
-    });
+        updateMode: syncStatus.running ? 'auto_file_polling' : 'manual_import_snapshot',
+        sync: syncStatus
+      });
   });
 
   app.get('/api/visual/flowchart', async (req: Request, res: Response) => {

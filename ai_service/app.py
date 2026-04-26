@@ -177,6 +177,7 @@ def predict():
 
         payload = request.get_json(force=True, silent=False) or {}
         history = payload.get('history')
+        raw_steps = payload.get('steps', 1)
         if history is None:
             return jsonify({'status': 'error', 'message': 'Request body must include history.'}), 400
 
@@ -206,17 +207,41 @@ def predict():
                 ),
             }), 400
 
+        steps = int(raw_steps)
+        if steps <= 0:
+            return jsonify({'status': 'error', 'message': 'steps must be a positive integer.'}), 400
+
         history_norm = history_data / RUNTIME['max_flow']
-        input_tensor = torch.FloatTensor(history_norm).unsqueeze(0).to(DEVICE)
+        rolling_window = history_norm.copy()
+        prediction_steps = []
 
         with torch.inference_mode():
-            prediction_norm = RUNTIME['model'](input_tensor, RUNTIME['adjacency_tensor'])
+            for step_index in range(steps):
+                input_tensor = torch.FloatTensor(rolling_window).unsqueeze(0).to(DEVICE)
+                prediction_norm = RUNTIME['model'](input_tensor, RUNTIME['adjacency_tensor'])
+                prediction_array = prediction_norm.detach().cpu().numpy()[0]
+                prediction_steps.append(prediction_array.copy())
+                rolling_window = np.concatenate([rolling_window[1:], prediction_array[np.newaxis, :]], axis=0)
 
-        prediction = (prediction_norm.detach().cpu().numpy() * RUNTIME['max_flow']).round().astype(int)
+        scaled_steps = [
+            (prediction_step * RUNTIME['max_flow']).round().astype(int)
+            for prediction_step in prediction_steps
+        ]
+        final_step = scaled_steps[-1]
         result = {
-            node_id: int(prediction[0][index])
+            node_id: int(final_step[index])
             for index, node_id in enumerate(RUNTIME['node_ids'])
         }
+        detailed_steps = [
+            {
+                'step': step_index + 1,
+                'prediction': {
+                    node_id: int(prediction_step[node_index])
+                    for node_index, node_id in enumerate(RUNTIME['node_ids'])
+                },
+            }
+            for step_index, prediction_step in enumerate(scaled_steps)
+        ]
 
         return jsonify({
             'status': 'success',
@@ -224,7 +249,9 @@ def predict():
             'node_ids': RUNTIME['node_ids'],
             'device': RUNTIME['device'],
             'device_name': RUNTIME['device_name'],
+            'steps': steps,
             'prediction': result,
+            'prediction_steps': detailed_steps,
         })
     except Exception as error:
         return jsonify({'status': 'error', 'message': str(error)}), 500

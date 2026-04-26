@@ -85,7 +85,8 @@ function deterministicNoise(timestampMs: number, index: number) {
 }
 
 async function getLatestSnapshot() {
-  const [timeRows] = await pool.query<any[]>('SELECT MAX(timestamp) AS last_time FROM traffic_flow');
+  const now = new Date();
+  const [timeRows] = await pool.query<any[]>('SELECT MAX(timestamp) AS last_time FROM traffic_flow WHERE timestamp <= ?', [now]);
   const lastTimeValue = timeRows[0]?.last_time;
   if (!lastTimeValue) {
     return { lastTime: null as Date | null, previousByNode: new Map<string, PreviousNodeSnapshot>() };
@@ -110,6 +111,10 @@ function resolveNextTimestamp(lastTime: Date | null) {
   const nowFloor = floorToStep(new Date(), stepMinutes);
   if (!lastTime) {
     return nowFloor;
+  }
+
+  if (lastTime >= nowFloor) {
+    return null;
   }
 
   const deltaMs = nowFloor.getTime() - lastTime.getTime();
@@ -178,6 +183,13 @@ async function generateNextSlice() {
   }
 
   const nextTimestamp = resolveNextTimestamp(lastTime);
+  if (!nextTimestamp) {
+    status.lastGeneratedAt = new Date().toISOString();
+    status.lastDataTimestamp = lastTime.toISOString();
+    status.lastMessage = 'Current traffic_flow data is already aligned with the latest real-world time window.';
+    return;
+  }
+
   const rows = SYSTEM_INTERSECTIONS.map((intersection, index) => buildSyntheticRow(index, nextTimestamp, previousByNode.get(intersection.id)));
 
   await pool.query('INSERT INTO traffic_flow (node_id, timestamp, flow, speed, occupancy) VALUES ?', [rows]);

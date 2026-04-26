@@ -1,4 +1,4 @@
-﻿CREATE DATABASE IF NOT EXISTS traffic_system DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS traffic_system DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE traffic_system;
 
 CREATE TABLE IF NOT EXISTS nodes (
@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS nodes (
   lat DECIMAL(10, 6) NOT NULL,
   lng DECIMAL(10, 6) NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统路口节点表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='System intersection nodes';
 
 CREATE TABLE IF NOT EXISTS traffic_flow (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS traffic_flow (
   CONSTRAINT fk_traffic_node FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
   INDEX idx_node_time (node_id, timestamp),
   INDEX idx_time (timestamp)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='交通流量历史表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='System traffic history';
 
 CREATE TABLE IF NOT EXISTS predictions (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS predictions (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_prediction_node FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
   INDEX idx_node_target (node_id, target_time)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='模型预测结果表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Forecast results';
 
 CREATE TABLE IF NOT EXISTS users (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uk_users_session_token (session_token)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='超级管理员用户表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Admin users';
 
 CREATE TABLE IF NOT EXISTS incidents (
   id VARCHAR(30) NOT NULL PRIMARY KEY,
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS incidents (
   status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
   created_at DATETIME NOT NULL,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='交通事件表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Traffic incidents';
 
 CREATE TABLE IF NOT EXISTS pems_stations (
   id VARCHAR(30) NOT NULL PRIMARY KEY,
@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS pems_stations (
   data_source VARCHAR(30) NOT NULL DEFAULT 'PeMS',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='PeMS 站点信息表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='PeMS stations';
 
 CREATE TABLE IF NOT EXISTS pems_traffic_flow (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -99,4 +99,13 @@ CREATE TABLE IF NOT EXISTS pems_traffic_flow (
   CONSTRAINT fk_pems_station FOREIGN KEY (station_id) REFERENCES pems_stations(id) ON DELETE CASCADE,
   INDEX idx_pems_station_time (station_id, timestamp),
   INDEX idx_pems_timestamp (timestamp)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='PeMS 流量表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='PeMS traffic history';
+
+CREATE TABLE IF NOT EXISTS pems_node_bindings (
+  system_node_id VARCHAR(20) NOT NULL PRIMARY KEY,
+  station_id VARCHAR(30) NOT NULL,
+  binding_source VARCHAR(30) NOT NULL DEFAULT 'auto',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_pems_binding_station (station_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='PeMS to system-node mapping';

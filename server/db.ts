@@ -123,6 +123,16 @@ const bootstrapStatements = [
       INDEX idx_pems_station_time (station_id, timestamp),
       INDEX idx_pems_timestamp (timestamp)
     )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS pems_node_bindings (
+      system_node_id VARCHAR(20) NOT NULL PRIMARY KEY,
+      station_id VARCHAR(30) NOT NULL,
+      binding_source VARCHAR(30) NOT NULL DEFAULT 'auto',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_pems_binding_station (station_id)
+    )
   `
 ];
 

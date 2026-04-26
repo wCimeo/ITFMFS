@@ -81,3 +81,26 @@ python scripts\import_pems_data.py ^
 ```powershell
 python scripts\import_pems_data.py --stations "D:\PeMS\stations.csv" --traffic "D:\PeMS\flow.csv" --limit 5000
 ```
+
+## 七、自动同步任务
+
+如果你已经有会持续更新的 `stations.csv` / `flow.csv` 或 `.gz` 文件，可以在项目根目录 `.env` 中开启：
+
+```env
+ENABLE_TRAFFIC_SIMULATOR=false
+PEMS_SYNC_ENABLED=true
+PEMS_SYNC_INTERVAL_MS=60000
+PEMS_SYNC_STEP_MINUTES=15
+PEMS_SYNC_PYTHON_EXECUTABLE=python
+PEMS_SYNC_STATIONS_PATH=D:\PeMS\stations.csv
+PEMS_SYNC_TRAFFIC_PATH=D:\PeMS\flow.csv
+PEMS_SYNC_SYSTEM_NODE_IDS=A1,B2,C3,D4,E5,F6,G7,H8,I9,J10
+PEMS_SYNC_SYSTEM_STATION_IDS=
+```
+
+开启后，Express 服务会定时调用 `scripts/import_pems_data.py --incremental --mirror-system-flow`：
+
+1. 把新增 PeMS 记录增量写入 `pems_stations` / `pems_traffic_flow`
+2. 把选中的 10 个 PeMS 站点稳定映射到 `A1-J10`
+3. 按 `15` 分钟时间粒度把真实数据镜像到 `traffic_flow`
+4. 让预测模块直接使用与真实时间对齐后的最新数据窗口
